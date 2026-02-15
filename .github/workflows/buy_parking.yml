@@ -1,0 +1,91 @@
+name: Buy UCLA Parking
+
+on:
+  schedule:
+    # 7:00 AM Pacific = 2:00 PM UTC (Fri & Sat)
+    - cron: "0 14 * * 5,6"
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  buy-parking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      UCLA_USERNAME: ${{ secrets.UCLA_USERNAME }}
+      UCLA_PASSWORD: ${{ secrets.UCLA_PASSWORD }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Send Telegram prompt and wait for response
+        id: prompt
+        run: |
+          python -c "
+          import bot, json
+          msg_id = bot.send_purchase_prompt()
+          print(f'Sent prompt (message_id={msg_id})')
+          result = bot.poll_for_response(msg_id)
+          if result is True:
+              print('User approved purchase')
+          elif result is False:
+              print('User declined purchase')
+          else:
+              print('No response received (timed out)')
+          # Write result for next step
+          with open('prompt_result.json', 'w') as f:
+              json.dump({'approved': result is True}, f)
+          "
+
+      - name: Buy parking
+        if: always()
+        run: |
+          python -c "
+          import json, sys
+          try:
+              result = json.load(open('prompt_result.json'))
+          except FileNotFoundError:
+              print('No prompt result found, skipping')
+              sys.exit(0)
+          if not result.get('approved'):
+              print('Purchase not approved, skipping')
+              sys.exit(0)
+          import buy_parking
+          success = buy_parking.run(headless=True)
+          if success:
+              import bot
+              bot.send_message('Parking purchased successfully!')
+          else:
+              import bot
+              bot.send_message('Parking purchase FAILED. Check workflow logs.')
+              sys.exit(1)
+          "
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/
+          if-no-files-found: ignore
+
+      - name: Send failure notification
+        if: failure()
+        run: |
+          python -c "
+          import bot
+          bot.send_message('Parking workflow failed! Check GitHub Actions logs.')
+          "
