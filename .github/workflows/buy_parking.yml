@@ -2,8 +2,9 @@ name: Buy UCLA Parking
 
 on:
   schedule:
-    # 7:00 AM Pacific = 2:00 PM UTC (Fri & Sat)
-    - cron: "0 14 * * 5,6"
+    # 7:00 AM PST = 3:00 PM UTC (Fri & Sat)
+    # During PDT (Mar–Nov) this fires at 8:00 AM Pacific
+    - cron: "0 15 * * 5,6"
   workflow_dispatch:
     inputs:
       skip_prompt:

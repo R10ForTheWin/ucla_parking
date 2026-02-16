@@ -1,10 +1,7 @@
 name: Test Run (Dry Run)
 
 on:
-  schedule:
-    # 7:30 AM Pacific = 3:30 PM UTC — Feb 16, 2026 (one-time test)
-    - cron: "30 15 16 2 *"
-  workflow_dispatch: # Allow manual trigger too
+  workflow_dispatch: # Manual trigger only
 
 jobs:
   test-run:
