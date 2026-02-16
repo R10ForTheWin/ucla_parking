@@ -246,7 +246,7 @@ def send_purchase_prompts(users):
                 ]
             ]
         }
-        caption = "Hello! I'm Justin. Justin EMBAlake.\nAnd I am your friendly UCLA EMBA '27 parking agent.\n\nWould you like to buy a 1-day parking pass today?\n\nYellow 1-Day Student\n$7.28 + $0.73 tax = $8.01\nCharged to Payment Method On File"
+        caption = "Hello! I'm Justin. Justin EMBAlake.\nAnd I am your friendly UCLA EMBA'27 AI Parking Agent.\n\nWould you like to buy a 1-day parking pass today?\n\nYellow 1-Day Student\n$7.28 + $0.73 tax = $8.01\nCharged to Payment Method On File"
         try:
             if has_image:
                 with open(justin_img, "rb") as f:
