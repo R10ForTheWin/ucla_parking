@@ -246,7 +246,7 @@ def send_purchase_prompts(users):
                 ]
             ]
         }
-        caption = "UCLA EMBA Parking Reminder\n\n\U0001F43B Buy UCLA day pass today?\n\nYellow 1-Day Student \u2014 ~$7.28"
+        caption = "UCLA EMBA Parking Reminder\n\n\U0001F43B Buy UCLA day pass today?\n\nYellow 1-Day Student\n$7.28 + $0.73 tax = $8.01\nCharged to Payment Method On File"
         try:
             if has_image:
                 with open(bruin_img, "rb") as f:
