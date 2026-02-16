@@ -3,3 +3,5 @@ __pycache__/
 screenshots/
 .env
 prompt_result.json
+.DS_Store
+.claude/
