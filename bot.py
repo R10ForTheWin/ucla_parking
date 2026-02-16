@@ -241,7 +241,7 @@ def send_purchase_prompts(users):
         keyboard = {
             "inline_keyboard": [
                 [
-                    {"text": "Yes \U0001F43B", "callback_data": "buy_yes"},
+                    {"text": "Yes", "callback_data": "buy_yes"},
                     {"text": "No", "callback_data": "buy_no"},
                 ]
             ]
