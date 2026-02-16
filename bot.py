@@ -233,8 +233,8 @@ def send_purchase_prompts(users):
         dict mapping chat_id -> message_id for each sent prompt
     """
     prompts = {}
-    bruin_img = os.path.join(ASSETS_DIR, "bruin.png")
-    has_image = os.path.exists(bruin_img)
+    justin_img = os.path.join(ASSETS_DIR, "justin_embalake.png")
+    has_image = os.path.exists(justin_img)
 
     for user in users:
         chat_id = user["telegram_chat_id"]
@@ -246,10 +246,10 @@ def send_purchase_prompts(users):
                 ]
             ]
         }
-        caption = "UCLA EMBA Parking Reminder\n\n\U0001F43B Buy UCLA day pass today?\n\nYellow 1-Day Student\n$7.28 + $0.73 tax = $8.01\nCharged to Payment Method On File"
+        caption = "Hello! I'm Justin. Justin EMBAlake.\nAnd I am your friendly UCLA EMBA 27 parking agent.\n\nWould you like to buy a 1-day parking pass today?\n\nYellow 1-Day Student\n$7.28 + $0.73 tax = $8.01\nCharged to Payment Method On File"
         try:
             if has_image:
-                with open(bruin_img, "rb") as f:
+                with open(justin_img, "rb") as f:
                     resp = requests.post(
                         f"{TELEGRAM_API}/sendPhoto",
                         data={
