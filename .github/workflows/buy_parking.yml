@@ -4,7 +4,12 @@ on:
   schedule:
     # 7:00 AM Pacific = 2:00 PM UTC (Fri & Sat)
     - cron: "0 14 * * 5,6"
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      skip_prompt:
+        description: "Skip Yes/No prompt and buy immediately"
+        type: boolean
+        default: false
 
 jobs:
   buy-parking:
@@ -33,6 +38,7 @@ jobs:
 
       - name: Send Telegram prompt and wait for response
         id: prompt
+        if: ${{ github.event.inputs.skip_prompt != 'true' }}
         run: |
           python -c "
           import bot, json
@@ -45,7 +51,6 @@ jobs:
               print('User declined purchase')
           else:
               print('No response received (timed out)')
-          # Write result for next step
           with open('prompt_result.json', 'w') as f:
               json.dump({'approved': result is True}, f)
           "
@@ -54,25 +59,32 @@ jobs:
         if: always()
         run: |
           python -c "
-          import json, sys
-          try:
-              result = json.load(open('prompt_result.json'))
-          except FileNotFoundError:
-              print('No prompt result found, skipping')
-              sys.exit(0)
-          if not result.get('approved'):
+          import json, sys, os
+          skip = os.environ.get('SKIP_PROMPT', 'false') == 'true'
+          if skip:
+              print('Prompt skipped — buying immediately')
+              approved = True
+          else:
+              try:
+                  result = json.load(open('prompt_result.json'))
+                  approved = result.get('approved', False)
+              except FileNotFoundError:
+                  print('No prompt result found, skipping')
+                  sys.exit(0)
+          if not approved:
               print('Purchase not approved, skipping')
               sys.exit(0)
-          import buy_parking
+          import buy_parking, bot
+          bot.send_message('Starting parking purchase...')
           success = buy_parking.run(headless=True)
           if success:
-              import bot
               bot.send_message('Parking purchased successfully!')
           else:
-              import bot
               bot.send_message('Parking purchase FAILED. Check workflow logs.')
               sys.exit(1)
           "
+        env:
+          SKIP_PROMPT: ${{ github.event.inputs.skip_prompt }}
 
       - name: Upload screenshots on failure
         if: failure()
