@@ -107,14 +107,13 @@ def ask_for_plate(chat_id, plates):
             if callback.get("message", {}).get("message_id") != message_id:
                 continue
 
-            requests.post(
-                f"{TELEGRAM_API}/answerCallbackQuery",
-                json={"callback_query_id": callback["id"]},
-                timeout=10,
-            )
-
             idx = int(callback["data"].split("_")[1])
             chosen = plates[idx]
+            requests.post(
+                f"{TELEGRAM_API}/answerCallbackQuery",
+                json={"callback_query_id": callback["id"], "text": f"Got it — {chosen}"},
+                timeout=10,
+            )
             _edit(chat_id, message_id,
                   f"Which car are you driving today? → *{chosen}*",
                   parse_mode="Markdown")
@@ -153,22 +152,22 @@ def ask_for_structure(chat_id):
             if callback.get("message", {}).get("message_id") != message_id:
                 continue
 
+            if callback["data"] == "struct_4":
+                label = "Structure 4"
+                value = config.STRUCTURE_4
+            else:
+                label = "P7"
+                value = config.STRUCTURE_P7
+
             requests.post(
                 f"{TELEGRAM_API}/answerCallbackQuery",
-                json={"callback_query_id": callback["id"]},
+                json={"callback_query_id": callback["id"], "text": f"Got it — {label}"},
                 timeout=10,
             )
-
-            if callback["data"] == "struct_4":
-                _edit(chat_id, message_id,
-                      "Which parking structure? → *Structure 4*",
-                      parse_mode="Markdown")
-                return config.STRUCTURE_4
-            else:
-                _edit(chat_id, message_id,
-                      "Which parking structure? → *P7*",
-                      parse_mode="Markdown")
-                return config.STRUCTURE_P7
+            _edit(chat_id, message_id,
+                  f"Which parking structure? → *{label}*",
+                  parse_mode="Markdown")
+            return value
 
         time.sleep(config.TELEGRAM_POLL_INTERVAL)
 
@@ -308,15 +307,14 @@ def poll_all_responses(prompts, timeout=None):
             responses[cb_chat_id] = answer
             pending.discard(cb_chat_id)
 
-            # Acknowledge callback
+            choice_text = "Yes" if answer else "No"
+
+            # Acknowledge callback with instant toast
             requests.post(
                 f"{TELEGRAM_API}/answerCallbackQuery",
-                json={"callback_query_id": callback["id"]},
+                json={"callback_query_id": callback["id"], "text": f"Got it — {choice_text}!"},
                 timeout=10,
             )
-
-            # Edit message to show choice
-            choice_text = "Yes" if answer else "No"
             _edit(cb_chat_id, cb_msg_id,
                   f"Buy UCLA parking today? → *{choice_text}*",
                   parse_mode="Markdown")
@@ -380,19 +378,20 @@ def collect_registration(chat_id):
             if callback.get("message", {}).get("message_id") != msg_id:
                 continue
 
+            add_second = callback["data"] == "add_yes"
             requests.post(
                 f"{TELEGRAM_API}/answerCallbackQuery",
-                json={"callback_query_id": callback["id"]},
+                json={"callback_query_id": callback["id"], "text": "Got it!"},
                 timeout=10,
             )
 
-            if callback["data"] == "add_yes":
+            if add_second:
                 _edit(chat_id, msg_id, "Do you have a second car? → *Yes*", parse_mode="Markdown")
                 _send(chat_id, "What is the second license plate?")
                 plate2 = _wait_for_text_reply(chat_id, last_update_id, upper=True)
                 if plate2:
                     plates.append(plate2)
-            else:
+            if not add_second:
                 _edit(chat_id, msg_id, "Do you have a second car? → *No*", parse_mode="Markdown")
             break
         else:
