@@ -57,19 +57,18 @@ def _handle_duo_passcode(page):
     print(f"Entering DUO passcode...")
     page.get_by_role("textbox", name="Passcode").fill(code)
     page.get_by_role("textbox", name="Passcode").press("Enter")
-    page.get_by_test_id("verify-button").click()
 
-    # Wait for the page to navigate past DUO
-    page.wait_for_url("**/per/**", timeout=config.PAGE_LOAD_TIMEOUT)
+    # Wait for the page to navigate past DUO (to any bruinepermit page)
+    page.wait_for_url("**/bruinepermit.t2hosted.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
     print("DUO 2FA complete.")
 
 
-def _do_purchase(page):
-    """Execute the full purchase flow."""
+def _do_purchase(page, dry_run=False):
+    """Execute the full purchase flow. If dry_run=True, stop before final transaction."""
 
     # ── Step 1: Navigate to portal ──
     print("Navigating to ePermit portal...")
-    page.goto("https://bruinepermit.t2hosted.com/Account/Portal", timeout=config.PAGE_LOAD_TIMEOUT)
+    page.goto("https://bruinepermit.t2hosted.com/Account/Portal", timeout=config.PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
     _wait_for_queue_it(page)
 
     # ── Step 2: Start permit flow ──
@@ -87,7 +86,12 @@ def _do_purchase(page):
     # ── Step 4: DUO 2FA via passcode ──
     _handle_duo_passcode(page)
 
-    # ── Step 5: Permit selection page ──
+    # ── Step 5: Handle orphaned cart if present, then permit selection ──
+    if "orphan" in page.url.lower() or "assumeOrphanedCart" in page.url:
+        print("Orphaned cart page detected, starting fresh...")
+        page.goto("https://bruinepermit.t2hosted.com/per/index.aspx",
+                   timeout=config.PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
+
     print("Selecting permit...")
     page.wait_for_url("**/per/index.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
     page.get_by_role("button", name="Next >>").click()
@@ -110,8 +114,12 @@ def _do_purchase(page):
     page.get_by_role("button", name="Next >>").click()
 
     # ── Step 9: Confirm purchase ──
-    print("Confirming purchase...")
     _screenshot(page, "pre_purchase")
+    if dry_run:
+        print("DRY RUN — stopping before 'Process Transaction'. Screenshot saved.")
+        return
+
+    print("Confirming purchase...")
     page.get_by_role("button", name="Process Transaction").click()
 
     # Wait for confirmation page
@@ -119,7 +127,7 @@ def _do_purchase(page):
     print("Transaction submitted.")
 
 
-def run(headless=True):
+def run(headless=True, dry_run=False):
     """Run the full purchase flow. Returns True on success."""
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
@@ -128,7 +136,7 @@ def run(headless=True):
         page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
 
         try:
-            _do_purchase(page)
+            _do_purchase(page, dry_run=dry_run)
             _screenshot(page, "success")
             print("Purchase completed successfully!")
             return True
@@ -142,5 +150,6 @@ def run(headless=True):
 
 if __name__ == "__main__":
     headless = "--headless" in sys.argv
-    success = run(headless=headless)
+    dry_run = "--dry-run" in sys.argv
+    success = run(headless=headless, dry_run=dry_run)
     sys.exit(0 if success else 1)
