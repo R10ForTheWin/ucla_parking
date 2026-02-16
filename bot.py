@@ -233,7 +233,7 @@ def send_purchase_prompts(users):
         dict mapping chat_id -> message_id for each sent prompt
     """
     prompts = {}
-    justin_img = os.path.join(ASSETS_DIR, "justin_embalake.png")
+    justin_img = os.path.join(ASSETS_DIR, "justin_embalake.jpg")
     has_image = os.path.exists(justin_img)
 
     for user in users:
