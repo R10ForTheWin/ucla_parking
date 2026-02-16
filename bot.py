@@ -1,11 +1,13 @@
 """Telegram bot functions for multi-user prompts and responses."""
 
+import os
 import time
 import requests
 import config
 
 
 TELEGRAM_API = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}"
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
 
 # ── Low-level helpers ──
@@ -231,18 +233,37 @@ def send_purchase_prompts(users):
         dict mapping chat_id -> message_id for each sent prompt
     """
     prompts = {}
+    bruin_img = os.path.join(ASSETS_DIR, "bruin.png")
+    has_image = os.path.exists(bruin_img)
+
     for user in users:
         chat_id = user["telegram_chat_id"]
         keyboard = {
             "inline_keyboard": [
                 [
-                    {"text": "Yes", "callback_data": "buy_yes"},
+                    {"text": "Yes \U0001F43B", "callback_data": "buy_yes"},
                     {"text": "No", "callback_data": "buy_no"},
                 ]
             ]
         }
+        caption = "\U0001F43B\U0001F4DB Buy UCLA day pass today?\n\nYellow 1-Day Student \u2014 ~$7.28"
         try:
-            msg_id = _send(chat_id, "Buy UCLA day pass today?\n\nYellow 1-Day Student — ~$7.28", reply_markup=keyboard)
+            if has_image:
+                with open(bruin_img, "rb") as f:
+                    resp = requests.post(
+                        f"{TELEGRAM_API}/sendPhoto",
+                        data={
+                            "chat_id": chat_id,
+                            "caption": caption,
+                            "reply_markup": __import__("json").dumps(keyboard),
+                        },
+                        files={"photo": f},
+                        timeout=15,
+                    )
+                resp.raise_for_status()
+                msg_id = resp.json()["result"]["message_id"]
+            else:
+                msg_id = _send(chat_id, caption, reply_markup=keyboard)
             prompts[str(chat_id)] = msg_id
         except Exception as e:
             print(f"Failed to send prompt to {chat_id}: {e}")
