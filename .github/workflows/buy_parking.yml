@@ -34,7 +34,23 @@ jobs:
           playwright install chromium
           playwright install-deps chromium
 
+      - name: Check if today is a class day
+        id: datecheck
+        run: |
+          python -c "
+          import config, datetime, os
+          today = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-8))).strftime('%Y-%m-%d')
+          is_manual = '${{ github.event_name }}' == 'workflow_dispatch'
+          is_class_day = today in config.PARKING_DATES
+          print(f'Today (PT): {today}, class day: {is_class_day}, manual: {is_manual}')
+          if not is_class_day and not is_manual:
+              print('Not a class day. Skipping.')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'should_run={\"true\" if (is_class_day or is_manual) else \"false\"}\n')
+          "
+
       - name: Run purchase flow for all users
+        if: steps.datecheck.outputs.should_run == 'true'
         run: |
           python -c "
           import json, sys
