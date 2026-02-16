@@ -245,24 +245,19 @@ def send_purchase_prompts(users):
                 ]
             ]
         }
-        caption = "Hello! I'm Justin. Justin EMBAlake.\nAnd I am your friendly UCLA EMBA'27 AI Parking Agent.\n\nWould you like to buy a 1-day parking pass today?\n\nYellow 1-Day Student\n$7.28 + $0.73 tax = $8.01\nCharged to Payment Method On File"
+        text = "Hello! I'm Justin. Justin EMBAlake.\nAnd I am your friendly UCLA EMBA'27 AI Parking Agent.\n\nWould you like to buy a 1-day parking pass today?\n\nYellow 1-Day Student\n$7.28 + $0.73 tax = $8.01\nCharged to Payment Method On File"
         try:
+            # Send photo silently (no notification)
             if has_image:
                 with open(justin_img, "rb") as f:
-                    resp = requests.post(
+                    requests.post(
                         f"{TELEGRAM_API}/sendPhoto",
-                        data={
-                            "chat_id": chat_id,
-                            "caption": caption,
-                            "reply_markup": __import__("json").dumps(keyboard),
-                        },
+                        data={"chat_id": chat_id, "disable_notification": "true"},
                         files={"photo": f},
                         timeout=15,
                     )
-                resp.raise_for_status()
-                msg_id = resp.json()["result"]["message_id"]
-            else:
-                msg_id = _send(chat_id, caption, reply_markup=keyboard)
+            # Send text with buttons (this triggers the notification)
+            msg_id = _send(chat_id, text, reply_markup=keyboard)
             prompts[str(chat_id)] = msg_id
         except Exception as e:
             print(f"Failed to send prompt to {chat_id}: {e}")
