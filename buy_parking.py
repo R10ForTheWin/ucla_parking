@@ -8,6 +8,7 @@ import sys
 import time
 from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
 
+import bot
 import config
 
 
@@ -38,23 +39,29 @@ def _wait_for_queue_it(page):
     raise TimeoutError("Stuck in Queue-it waiting room")
 
 
-def _wait_for_duo(page):
-    """Wait for the user to approve DUO 2FA on their phone.
+def _handle_duo_passcode(page):
+    """Handle DUO 2FA by requesting a passcode via Telegram.
 
-    The recording showed a passcode flow, but in automated mode we use
-    DUO push instead. We wait until the page navigates away from the
-    login/DUO pages.
+    1. Clicks 'Send a passcode' on the DUO page
+    2. Asks the user for the code via Telegram
+    3. Enters the code and verifies
     """
-    print("Waiting for DUO 2FA approval (check your phone)...")
-    deadline = time.time() + config.DUO_WAIT_TIMEOUT
-    while time.time() < deadline:
-        url = page.url.lower()
-        # Once we leave SSO/DUO pages, auth is complete
-        if "duosecurity" not in url and "shibboleth" not in url and "login" not in url and "idp" not in url:
-            print("DUO 2FA approved.")
-            return
-        time.sleep(3)
-    raise TimeoutError("DUO 2FA was not approved in time")
+    print("Clicking 'Send a passcode'...")
+    page.get_by_role("button", name="Send a passcode").click()
+
+    print("Asking user for DUO code via Telegram...")
+    code = bot.ask_for_duo_code()
+    if not code:
+        raise TimeoutError("No DUO passcode received from Telegram")
+
+    print(f"Entering DUO passcode...")
+    page.get_by_role("textbox", name="Passcode").fill(code)
+    page.get_by_role("textbox", name="Passcode").press("Enter")
+    page.get_by_test_id("verify-button").click()
+
+    # Wait for the page to navigate past DUO
+    page.wait_for_url("**/per/**", timeout=config.PAGE_LOAD_TIMEOUT)
+    print("DUO 2FA complete.")
 
 
 def _do_purchase(page):
@@ -77,18 +84,8 @@ def _do_purchase(page):
     page.get_by_placeholder("Your UCLA Logon Password").fill(config.UCLA_PASSWORD)
     page.get_by_role("button", name="Sign In").click()
 
-    # ── Step 4: DUO 2FA ──
-    # Try to trigger a DUO push automatically, then wait for approval
-    try:
-        push_btn = page.get_by_role("button", name="Send Me a Push")
-        push_btn.wait_for(timeout=10000)
-        push_btn.click()
-        print("DUO push sent.")
-    except PwTimeout:
-        # Maybe it auto-sends or shows a different UI
-        print("No push button found, waiting for DUO prompt...")
-
-    _wait_for_duo(page)
+    # ── Step 4: DUO 2FA via passcode ──
+    _handle_duo_passcode(page)
 
     # ── Step 5: Permit selection page ──
     print("Selecting permit...")

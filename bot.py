@@ -89,6 +89,66 @@ def poll_for_response(message_id):
     return None
 
 
+def ask_for_duo_code():
+    """Send a Telegram message asking for the DUO code, then wait for a reply.
+
+    Returns the code as a string, or None if timed out.
+    """
+    # Flush any pending updates first so we don't pick up old messages
+    resp = requests.get(
+        f"{TELEGRAM_API}/getUpdates",
+        params={"offset": -1, "timeout": 0},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    results = resp.json().get("result", [])
+    last_update_id = results[-1]["update_id"] if results else 0
+
+    # Send the prompt
+    requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={
+            "chat_id": config.TELEGRAM_CHAT_ID,
+            "text": "Enter your DUO passcode:",
+        },
+        timeout=10,
+    )
+
+    # Poll for a text message reply (up to 2 min)
+    deadline = time.time() + config.DUO_WAIT_TIMEOUT
+    while time.time() < deadline:
+        resp = requests.get(
+            f"{TELEGRAM_API}/getUpdates",
+            params={"offset": last_update_id + 1, "timeout": 10},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        updates = resp.json().get("result", [])
+
+        for update in updates:
+            last_update_id = update["update_id"]
+            msg = update.get("message")
+            if not msg:
+                continue
+            if str(msg.get("chat", {}).get("id")) != str(config.TELEGRAM_CHAT_ID):
+                continue
+            text = msg.get("text", "").strip()
+            if text:
+                requests.post(
+                    f"{TELEGRAM_API}/sendMessage",
+                    json={
+                        "chat_id": config.TELEGRAM_CHAT_ID,
+                        "text": f"Got it: {text}",
+                    },
+                    timeout=10,
+                )
+                return text
+
+        time.sleep(config.TELEGRAM_POLL_INTERVAL)
+
+    return None
+
+
 def send_message(text):
     """Send a plain text message to the configured chat."""
     resp = requests.post(
