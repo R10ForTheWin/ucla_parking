@@ -1,6 +1,5 @@
-"""Telegram bot functions for sending prompts and receiving responses."""
+"""Telegram bot functions for multi-user prompts and responses."""
 
-import json
 import time
 import requests
 import config
@@ -9,122 +8,79 @@ import config
 TELEGRAM_API = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}"
 
 
-def send_purchase_prompt():
-    """Send a Yes/No inline keyboard message asking to buy parking.
+# ── Low-level helpers ──
 
-    Returns the message_id of the sent message.
-    """
-    keyboard = {
-        "inline_keyboard": [
-            [
-                {"text": "Yes", "callback_data": "buy_yes"},
-                {"text": "No", "callback_data": "buy_no"},
-            ]
-        ]
-    }
-    resp = requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        json={
-            "chat_id": config.TELEGRAM_CHAT_ID,
-            "text": "Buy UCLA parking today?",
-            "reply_markup": keyboard,
-        },
-        timeout=10,
-    )
+def _send(chat_id, text, reply_markup=None, parse_mode=None):
+    """Send a message to a specific chat. Returns message_id."""
+    payload = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    resp = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
     resp.raise_for_status()
     return resp.json()["result"]["message_id"]
 
 
-def poll_for_response(message_id):
-    """Poll for a callback query response to the given message.
+def _edit(chat_id, message_id, text, parse_mode=None):
+    """Edit an existing message."""
+    payload = {"chat_id": chat_id, "message_id": message_id, "text": text}
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    requests.post(f"{TELEGRAM_API}/editMessageText", json=payload, timeout=10)
 
-    Returns True if user tapped Yes, False if No, None if timed out.
-    """
-    deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
-    last_update_id = 0
 
-    while time.time() < deadline:
-        resp = requests.get(
-            f"{TELEGRAM_API}/getUpdates",
-            params={"offset": last_update_id + 1, "timeout": 10},
-            timeout=15,
+def _get_updates(offset=0, timeout=10):
+    """Fetch updates from Telegram."""
+    resp = requests.get(
+        f"{TELEGRAM_API}/getUpdates",
+        params={"offset": offset, "timeout": timeout},
+        timeout=timeout + 5,
+    )
+    resp.raise_for_status()
+    return resp.json().get("result", [])
+
+
+def _flush_updates():
+    """Flush pending updates and return the last update_id."""
+    updates = _get_updates(offset=-1, timeout=0)
+    return updates[-1]["update_id"] if updates else 0
+
+
+# ── Single-user functions ──
+
+def send_message(chat_id, text):
+    """Send a plain text message."""
+    _send(chat_id, text)
+
+
+def send_photo(chat_id, photo_path, caption=""):
+    """Send a photo to a specific chat."""
+    with open(photo_path, "rb") as f:
+        resp = requests.post(
+            f"{TELEGRAM_API}/sendPhoto",
+            data={"chat_id": chat_id, "caption": caption},
+            files={"photo": f},
+            timeout=30,
         )
-        resp.raise_for_status()
-        updates = resp.json().get("result", [])
-
-        for update in updates:
-            last_update_id = update["update_id"]
-            callback = update.get("callback_query")
-            if not callback:
-                continue
-            # Match the callback to our message
-            if callback.get("message", {}).get("message_id") != message_id:
-                continue
-
-            answer = callback["data"] == "buy_yes"
-
-            # Acknowledge the callback so the button stops spinning
-            requests.post(
-                f"{TELEGRAM_API}/answerCallbackQuery",
-                json={"callback_query_id": callback["id"]},
-                timeout=10,
-            )
-
-            # Edit the message to show the choice
-            choice_text = "Yes" if answer else "No"
-            requests.post(
-                f"{TELEGRAM_API}/editMessageText",
-                json={
-                    "chat_id": config.TELEGRAM_CHAT_ID,
-                    "message_id": message_id,
-                    "text": f"Buy UCLA parking today? → *{choice_text}*",
-                    "parse_mode": "Markdown",
-                },
-                timeout=10,
-            )
-            return answer
-
-        time.sleep(config.TELEGRAM_POLL_INTERVAL)
-
-    return None
+    resp.raise_for_status()
 
 
-def ask_for_plate():
-    """Ask which license plate to use. Returns the plate string.
-
-    Shows 9VSK311 as default button, with option to type a different one.
-    """
+def ask_for_plate(chat_id, default_plate):
+    """Ask which license plate to use. Returns the plate string or None."""
     keyboard = {
         "inline_keyboard": [
-            [{"text": "9VSK311 (default)", "callback_data": "plate_9VSK311"}],
+            [{"text": f"{default_plate} (default)", "callback_data": f"plate_default"}],
             [{"text": "Different plate", "callback_data": "plate_other"}],
         ]
     }
-    resp = requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        json={
-            "chat_id": config.TELEGRAM_CHAT_ID,
-            "text": "Which car are you driving today?",
-            "reply_markup": keyboard,
-        },
-        timeout=10,
-    )
-    resp.raise_for_status()
-    message_id = resp.json()["result"]["message_id"]
+    message_id = _send(chat_id, "Which car are you driving today?", reply_markup=keyboard)
 
-    # Poll for callback
     deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
     last_update_id = 0
 
     while time.time() < deadline:
-        resp = requests.get(
-            f"{TELEGRAM_API}/getUpdates",
-            params={"offset": last_update_id + 1, "timeout": 10},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        updates = resp.json().get("result", [])
-
+        updates = _get_updates(offset=last_update_id + 1)
         for update in updates:
             last_update_id = update["update_id"]
             callback = update.get("callback_query")
@@ -139,117 +95,38 @@ def ask_for_plate():
                 timeout=10,
             )
 
-            if callback["data"] == "plate_9VSK311":
-                requests.post(
-                    f"{TELEGRAM_API}/editMessageText",
-                    json={
-                        "chat_id": config.TELEGRAM_CHAT_ID,
-                        "message_id": message_id,
-                        "text": "Which car are you driving today? → *9VSK311*",
-                        "parse_mode": "Markdown",
-                    },
-                    timeout=10,
-                )
-                return "9VSK311"
+            if callback["data"] == "plate_default":
+                _edit(chat_id, message_id,
+                      f"Which car are you driving today? → *{default_plate}*",
+                      parse_mode="Markdown")
+                return default_plate
             else:
-                # Ask them to type the plate
-                requests.post(
-                    f"{TELEGRAM_API}/editMessageText",
-                    json={
-                        "chat_id": config.TELEGRAM_CHAT_ID,
-                        "message_id": message_id,
-                        "text": "Type your license plate number:",
-                    },
-                    timeout=10,
-                )
-                return _wait_for_text_reply(last_update_id)
+                _edit(chat_id, message_id, "Type your license plate number:")
+                return _wait_for_text_reply(chat_id, last_update_id, upper=True)
 
         time.sleep(config.TELEGRAM_POLL_INTERVAL)
 
     return None
 
 
-def _wait_for_text_reply(last_update_id):
-    """Wait for a text message reply. Returns the text or None."""
-    deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
-    while time.time() < deadline:
-        resp = requests.get(
-            f"{TELEGRAM_API}/getUpdates",
-            params={"offset": last_update_id + 1, "timeout": 10},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        updates = resp.json().get("result", [])
+def ask_for_duo_code(chat_id):
+    """Ask for DUO passcode via Telegram. Returns code string or None."""
+    last_update_id = _flush_updates()
+    _send(chat_id, "Enter your DUO passcode:")
 
-        for update in updates:
-            last_update_id = update["update_id"]
-            msg = update.get("message")
-            if not msg:
-                continue
-            if str(msg.get("chat", {}).get("id")) != str(config.TELEGRAM_CHAT_ID):
-                continue
-            text = msg.get("text", "").strip()
-            if text:
-                return text.upper()
-
-        time.sleep(config.TELEGRAM_POLL_INTERVAL)
-
-    return None
-
-
-def ask_for_duo_code():
-    """Send a Telegram message asking for the DUO code, then wait for a reply.
-
-    Returns the code as a string, or None if timed out.
-    """
-    # Flush any pending updates first so we don't pick up old messages
-    resp = requests.get(
-        f"{TELEGRAM_API}/getUpdates",
-        params={"offset": -1, "timeout": 0},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    results = resp.json().get("result", [])
-    last_update_id = results[-1]["update_id"] if results else 0
-
-    # Send the prompt
-    requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        json={
-            "chat_id": config.TELEGRAM_CHAT_ID,
-            "text": "Enter your DUO passcode:",
-        },
-        timeout=10,
-    )
-
-    # Poll for a text message reply (up to 2 min)
     deadline = time.time() + config.DUO_WAIT_TIMEOUT
     while time.time() < deadline:
-        resp = requests.get(
-            f"{TELEGRAM_API}/getUpdates",
-            params={"offset": last_update_id + 1, "timeout": 10},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        updates = resp.json().get("result", [])
-
+        updates = _get_updates(offset=last_update_id + 1)
         for update in updates:
             last_update_id = update["update_id"]
             msg = update.get("message")
             if not msg:
                 continue
-            if str(msg.get("chat", {}).get("id")) != str(config.TELEGRAM_CHAT_ID):
+            if str(msg.get("chat", {}).get("id")) != str(chat_id):
                 continue
             text = msg.get("text", "").strip()
             if text:
-                requests.post(
-                    f"{TELEGRAM_API}/sendMessage",
-                    json={
-                        "chat_id": config.TELEGRAM_CHAT_ID,
-                        "text": f"Got it: {text}",
-                    },
-                    timeout=10,
-                )
+                _send(chat_id, f"Got it: {text}")
                 return text
 
         time.sleep(config.TELEGRAM_POLL_INTERVAL)
@@ -257,40 +134,164 @@ def ask_for_duo_code():
     return None
 
 
-def send_message(text):
-    """Send a plain text message to the configured chat."""
-    resp = requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        json={
-            "chat_id": config.TELEGRAM_CHAT_ID,
-            "text": text,
-        },
-        timeout=10,
-    )
-    resp.raise_for_status()
+def _wait_for_text_reply(chat_id, last_update_id, upper=False):
+    """Wait for a text message from a specific chat."""
+    deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
+    while time.time() < deadline:
+        updates = _get_updates(offset=last_update_id + 1)
+        for update in updates:
+            last_update_id = update["update_id"]
+            msg = update.get("message")
+            if not msg:
+                continue
+            if str(msg.get("chat", {}).get("id")) != str(chat_id):
+                continue
+            text = msg.get("text", "").strip()
+            if text:
+                return text.upper() if upper else text
+
+        time.sleep(config.TELEGRAM_POLL_INTERVAL)
+
+    return None
 
 
-def send_photo(photo_path, caption=""):
-    """Send a photo (e.g. screenshot) to the configured chat."""
-    with open(photo_path, "rb") as f:
-        resp = requests.post(
-            f"{TELEGRAM_API}/sendPhoto",
-            data={"chat_id": config.TELEGRAM_CHAT_ID, "caption": caption},
-            files={"photo": f},
-            timeout=30,
-        )
-    resp.raise_for_status()
+# ── Multi-user prompt ──
+
+def send_purchase_prompts(users):
+    """Send Yes/No prompts to all users simultaneously.
+
+    Args:
+        users: list of user dicts with at least 'telegram_chat_id'
+
+    Returns:
+        dict mapping chat_id -> message_id for each sent prompt
+    """
+    prompts = {}
+    for user in users:
+        chat_id = user["telegram_chat_id"]
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "Yes", "callback_data": "buy_yes"},
+                    {"text": "No", "callback_data": "buy_no"},
+                ]
+            ]
+        }
+        try:
+            msg_id = _send(chat_id, "Buy UCLA parking today?", reply_markup=keyboard)
+            prompts[str(chat_id)] = msg_id
+        except Exception as e:
+            print(f"Failed to send prompt to {chat_id}: {e}")
+    return prompts
 
 
-if __name__ == "__main__":
-    # Quick test: send a prompt and wait for response
-    print("Sending purchase prompt...")
-    msg_id = send_purchase_prompt()
-    print(f"Message sent (id={msg_id}). Waiting for response...")
-    result = poll_for_response(msg_id)
-    if result is True:
-        print("User said YES")
-    elif result is False:
-        print("User said NO")
-    else:
-        print("Timed out waiting for response")
+def poll_all_responses(prompts, timeout=None):
+    """Poll for Yes/No responses from multiple users.
+
+    Args:
+        prompts: dict of chat_id -> message_id
+        timeout: seconds to wait (default: TELEGRAM_POLL_TIMEOUT)
+
+    Returns:
+        dict of chat_id -> True (yes) / False (no) for users who responded
+    """
+    if timeout is None:
+        timeout = config.TELEGRAM_POLL_TIMEOUT
+
+    responses = {}
+    pending = set(prompts.keys())
+    deadline = time.time() + timeout
+    last_update_id = 0
+
+    while time.time() < deadline and pending:
+        updates = _get_updates(offset=last_update_id + 1)
+        for update in updates:
+            last_update_id = update["update_id"]
+            callback = update.get("callback_query")
+            if not callback:
+                continue
+
+            cb_msg_id = callback.get("message", {}).get("message_id")
+            cb_chat_id = str(callback.get("message", {}).get("chat", {}).get("id"))
+
+            if cb_chat_id not in pending:
+                continue
+            if cb_msg_id != prompts.get(cb_chat_id):
+                continue
+
+            answer = callback["data"] == "buy_yes"
+            responses[cb_chat_id] = answer
+            pending.discard(cb_chat_id)
+
+            # Acknowledge callback
+            requests.post(
+                f"{TELEGRAM_API}/answerCallbackQuery",
+                json={"callback_query_id": callback["id"]},
+                timeout=10,
+            )
+
+            # Edit message to show choice
+            choice_text = "Yes" if answer else "No"
+            _edit(cb_chat_id, cb_msg_id,
+                  f"Buy UCLA parking today? → *{choice_text}*",
+                  parse_mode="Markdown")
+
+        time.sleep(config.TELEGRAM_POLL_INTERVAL)
+
+    return responses
+
+
+# ── Registration flow ──
+
+def collect_registration(chat_id):
+    """Walk a new user through registration via Telegram DMs.
+
+    Returns dict with ucla_username, ucla_password, default_plate or None.
+    """
+    last_update_id = _flush_updates()
+
+    _send(chat_id, "Welcome to UCLA Parking Bot! Let's get you set up.\n\nWhat is your UCLA username (Logon ID)?")
+    username = _wait_for_text_reply(chat_id, last_update_id)
+    if not username:
+        _send(chat_id, "Registration timed out.")
+        return None
+    last_update_id = _flush_updates()
+
+    _send(chat_id, "What is your UCLA password?")
+    password = _wait_for_text_reply(chat_id, last_update_id)
+    if not password:
+        _send(chat_id, "Registration timed out.")
+        return None
+    last_update_id = _flush_updates()
+
+    _send(chat_id, "What is your default license plate number?")
+    plate = _wait_for_text_reply(chat_id, last_update_id, upper=True)
+    if not plate:
+        _send(chat_id, "Registration timed out.")
+        return None
+
+    _send(chat_id, f"You're all set!\n\nUsername: {username}\nPlate: {plate}\n\nYou'll get a parking prompt every Fri & Sat at 7 AM.")
+    return {
+        "ucla_username": username,
+        "ucla_password": password,
+        "default_plate": plate,
+    }
+
+
+def get_new_chat_ids(known_chat_ids):
+    """Check for /start messages from new (unregistered) users.
+
+    Returns list of new chat_id strings.
+    """
+    new_ids = []
+    updates = _get_updates(offset=-100, timeout=0)
+    for update in updates:
+        msg = update.get("message")
+        if not msg:
+            continue
+        chat_id = str(msg.get("chat", {}).get("id"))
+        text = msg.get("text", "").strip()
+        if text.lower() in ("/start", "/register") and chat_id not in known_chat_ids:
+            if chat_id not in new_ids:
+                new_ids.append(chat_id)
+    return new_ids

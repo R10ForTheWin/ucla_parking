@@ -1,6 +1,6 @@
 """Playwright script to automate UCLA parking purchase.
 
-Based on recorded flow from playwright codegen.
+Based on recorded flow from playwright codegen. Supports multi-user.
 """
 
 import os
@@ -39,36 +39,32 @@ def _wait_for_queue_it(page):
     raise TimeoutError("Stuck in Queue-it waiting room")
 
 
-def _handle_duo_passcode(page):
-    """Handle DUO 2FA by requesting a passcode via Telegram.
-
-    1. Clicks 'Send a passcode' on the DUO page
-    2. Asks the user for the code via Telegram
-    3. Enters the code and verifies
-    """
+def _handle_duo_passcode(page, chat_id):
+    """Handle DUO 2FA by requesting a passcode via Telegram."""
     print("Clicking 'Send a passcode'...")
     page.get_by_role("button", name="Send a passcode").click()
 
     print("Asking user for DUO code via Telegram...")
-    code = bot.ask_for_duo_code()
+    code = bot.ask_for_duo_code(chat_id)
     if not code:
         raise TimeoutError("No DUO passcode received from Telegram")
 
-    print(f"Entering DUO passcode...")
+    print("Entering DUO passcode...")
     page.get_by_role("textbox", name="Passcode").fill(code)
     page.get_by_role("textbox", name="Passcode").press("Enter")
 
-    # Wait for the page to navigate past DUO (to any bruinepermit page)
+    # Wait for the page to navigate past DUO
     page.wait_for_url("**/bruinepermit.t2hosted.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
     print("DUO 2FA complete.")
 
 
-def _do_purchase(page, dry_run=False, plate="9VSK311"):
-    """Execute the full purchase flow. If dry_run=True, stop before final transaction."""
+def _do_purchase(page, username, password, plate, chat_id, dry_run=False):
+    """Execute the full purchase flow for a single user."""
 
     # ── Step 1: Navigate to portal ──
     print("Navigating to ePermit portal...")
-    page.goto("https://bruinepermit.t2hosted.com/Account/Portal", timeout=config.PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
+    page.goto("https://bruinepermit.t2hosted.com/Account/Portal",
+              timeout=config.PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
     _wait_for_queue_it(page)
 
     # ── Step 2: Start permit flow ──
@@ -78,15 +74,15 @@ def _do_purchase(page, dry_run=False, plate="9VSK311"):
 
     # ── Step 3: UCLA SSO login ──
     print("Logging in with UCLA credentials...")
-    page.get_by_placeholder("Your UCLA Logon ID").fill(config.UCLA_USERNAME)
+    page.get_by_placeholder("Your UCLA Logon ID").fill(username)
     page.get_by_placeholder("Your UCLA Logon ID").press("Tab")
-    page.get_by_placeholder("Your UCLA Logon Password").fill(config.UCLA_PASSWORD)
+    page.get_by_placeholder("Your UCLA Logon Password").fill(password)
     page.get_by_role("button", name="Sign In").click()
 
     # ── Step 4: DUO 2FA via passcode ──
-    _handle_duo_passcode(page)
+    _handle_duo_passcode(page, chat_id)
 
-    # ── Step 5: Handle orphaned cart if present, then permit selection ──
+    # ── Step 5: Handle orphaned cart if present ──
     if "orphan" in page.url.lower() or "assumeOrphanedCart" in page.url:
         print("Orphaned cart page detected, starting fresh...")
         page.goto("https://bruinepermit.t2hosted.com/per/index.aspx",
@@ -127,8 +123,8 @@ def _do_purchase(page, dry_run=False, plate="9VSK311"):
     print("Transaction submitted.")
 
 
-def run(headless=True, dry_run=False, plate="9VSK311"):
-    """Run the full purchase flow. Returns True on success."""
+def run(username, password, plate, chat_id, headless=True, dry_run=False):
+    """Run the full purchase flow for one user. Returns True on success."""
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
         context = browser.new_context()
@@ -136,7 +132,7 @@ def run(headless=True, dry_run=False, plate="9VSK311"):
         page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
 
         try:
-            _do_purchase(page, dry_run=dry_run, plate=plate)
+            _do_purchase(page, username, password, plate, chat_id, dry_run=dry_run)
             _screenshot(page, "success")
             print("Purchase completed successfully!")
             return True
@@ -151,5 +147,12 @@ def run(headless=True, dry_run=False, plate="9VSK311"):
 if __name__ == "__main__":
     headless = "--headless" in sys.argv
     dry_run = "--dry-run" in sys.argv
-    success = run(headless=headless, dry_run=dry_run)
+    success = run(
+        username=config.UCLA_USERNAME,
+        password=config.UCLA_PASSWORD,
+        plate="9VSK311",
+        chat_id=config.TELEGRAM_CHAT_ID,
+        headless=headless,
+        dry_run=dry_run,
+    )
     sys.exit(0 if success else 1)

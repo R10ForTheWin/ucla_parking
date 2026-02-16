@@ -3,33 +3,49 @@
 import sys
 import bot
 import buy_parking
+import config
+from crypto_utils import load_users
 
 
 def main():
     headless = "--headless" in sys.argv
+    dry_run = "--dry-run" in sys.argv
+
+    users = load_users()
+    if not users:
+        print("No registered users. Run the register workflow first.")
+        sys.exit(1)
+
+    # For local testing, just run for the first user
+    user = users[0]
+    chat_id = user["telegram_chat_id"]
 
     print("Sending Telegram prompt...")
-    msg_id = bot.send_purchase_prompt()
-    print(f"Prompt sent (message_id={msg_id}). Check your phone!")
+    prompts = bot.send_purchase_prompts([user])
+    responses = bot.poll_all_responses(prompts)
 
-    result = bot.poll_for_response(msg_id)
+    if responses.get(str(chat_id)):
+        plate = bot.ask_for_plate(chat_id, user["default_plate"])
+        if not plate:
+            print("No plate selected.")
+            sys.exit(0)
 
-    if result is True:
-        print("Approved! Starting purchase...")
-        success = buy_parking.run(headless=headless)
+        print(f"Approved! Starting purchase (plate: {plate})...")
+        success = buy_parking.run(
+            username=user["ucla_username"],
+            password=user["ucla_password"],
+            plate=plate,
+            chat_id=chat_id,
+            headless=headless,
+            dry_run=dry_run,
+        )
         if success:
-            bot.send_message("Parking purchased successfully!")
-            print("Done!")
+            bot.send_message(chat_id, "Parking purchased successfully!")
         else:
-            bot.send_message("Parking purchase FAILED.")
-            print("Purchase failed.")
+            bot.send_message(chat_id, "Parking purchase FAILED.")
             sys.exit(1)
-    elif result is False:
-        print("Declined. Skipping purchase.")
-        bot.send_message("Parking purchase skipped.")
     else:
-        print("No response. Skipping.")
-        bot.send_message("No response to parking prompt. Skipped.")
+        print("Declined or timed out.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,64 @@
+name: Register New Users
+
+on:
+  workflow_dispatch:
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Register new users
+        run: |
+          python -c "
+          import sys
+          import bot
+          from crypto_utils import load_users, save_users
+
+          users = load_users()
+          known_ids = {str(u['telegram_chat_id']) for u in users}
+          print(f'Currently {len(users)} registered user(s)')
+
+          new_ids = bot.get_new_chat_ids(known_ids)
+          if not new_ids:
+              print('No new users found. Tell them to message @BruinParking_bot first.')
+              sys.exit(0)
+
+          print(f'Found {len(new_ids)} new user(s): {new_ids}')
+
+          for chat_id in new_ids:
+              print(f'Registering {chat_id}...')
+              info = bot.collect_registration(chat_id)
+              if info:
+                  info['telegram_chat_id'] = chat_id
+                  users.append(info)
+                  print(f'Registered: {info[\"ucla_username\"]}')
+              else:
+                  print(f'Registration failed/timed out for {chat_id}')
+
+          save_users(users)
+          print(f'Total users: {len(users)}')
+          "
+
+      - name: Commit updated users.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add users.json
+          git diff --cached --quiet && echo "No changes to commit" || \
+            git commit -m "Add new registered user(s)" && git push

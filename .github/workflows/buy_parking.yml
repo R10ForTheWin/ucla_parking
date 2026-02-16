@@ -17,10 +17,8 @@ jobs:
     timeout-minutes: 45
 
     env:
-      UCLA_USERNAME: ${{ secrets.UCLA_USERNAME }}
-      UCLA_PASSWORD: ${{ secrets.UCLA_PASSWORD }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -36,70 +34,68 @@ jobs:
           playwright install chromium
           playwright install-deps chromium
 
-      - name: Send Telegram prompt and wait for response
-        id: prompt
-        if: ${{ github.event.inputs.skip_prompt != 'true' }}
+      - name: Run purchase flow for all users
         run: |
           python -c "
-          import bot, json
-          msg_id = bot.send_purchase_prompt()
-          print(f'Sent prompt (message_id={msg_id})')
-          result = bot.poll_for_response(msg_id)
-          if result is True:
-              print('User approved purchase')
-          elif result is False:
-              print('User declined purchase')
-          else:
-              print('No response received (timed out)')
-          plate = None
-          if result is True:
-              plate = bot.ask_for_plate()
-              if not plate:
-                  print('No plate selected, skipping')
-                  result = False
-              else:
-                  print(f'Plate selected: {plate}')
-          with open('prompt_result.json', 'w') as f:
-              json.dump({'approved': result is True, 'plate': plate}, f)
-          "
+          import json, sys
+          import bot, buy_parking
+          from crypto_utils import load_users
 
-      - name: Buy parking
-        if: always()
-        run: |
-          python -c "
-          import json, sys, os
-          skip = os.environ.get('SKIP_PROMPT', 'false') == 'true'
-          plate = '9VSK311'
-          if skip:
-              print('Prompt skipped — buying immediately')
-              approved = True
-              # Still ask for plate via Telegram
-              import bot as _bot
-              _plate = _bot.ask_for_plate()
-              if _plate:
-                  plate = _plate
-          else:
-              try:
-                  result = json.load(open('prompt_result.json'))
-                  approved = result.get('approved', False)
-                  plate = result.get('plate', '9VSK311') or '9VSK311'
-              except FileNotFoundError:
-                  print('No prompt result found, skipping')
-                  sys.exit(0)
-          if not approved:
-              print('Purchase not approved, skipping')
+          skip_prompt = '${{ github.event.inputs.skip_prompt }}' == 'true'
+          users = load_users()
+          if not users:
+              print('No registered users found.')
               sys.exit(0)
-          import buy_parking, bot
-          bot.send_message(f'Starting parking purchase (plate: {plate})...')
-          success = buy_parking.run(headless=True, plate=plate)
-          if success:
-              bot.send_message('Parking purchased successfully!')
+
+          print(f'Found {len(users)} registered user(s)')
+
+          # Step 1: Send prompts to all users (unless skipping)
+          if skip_prompt:
+              approved_users = {str(u['telegram_chat_id']): True for u in users}
           else:
-              bot.send_message('Parking purchase FAILED. Check workflow logs.')
+              prompts = bot.send_purchase_prompts(users)
+              print(f'Sent prompts to {len(prompts)} users, waiting for responses...')
+              responses = bot.poll_all_responses(prompts)
+              approved_users = {cid: ans for cid, ans in responses.items() if ans}
+              print(f'{len(approved_users)} user(s) approved')
+
+          if not approved_users:
+              print('No users approved. Done.')
+              sys.exit(0)
+
+          # Step 2: For each approved user, ask plate then buy
+          user_map = {str(u['telegram_chat_id']): u for u in users}
+          failed = False
+          for chat_id in approved_users:
+              user = user_map[chat_id]
+              name = user['ucla_username']
+              print(f'--- Processing {name} ---')
+
+              # Ask for plate
+              plate = bot.ask_for_plate(chat_id, user['default_plate'])
+              if not plate:
+                  bot.send_message(chat_id, 'No plate selected. Skipping.')
+                  continue
+
+              bot.send_message(chat_id, f'Starting parking purchase (plate: {plate})...')
+
+              success = buy_parking.run(
+                  username=user['ucla_username'],
+                  password=user['ucla_password'],
+                  plate=plate,
+                  chat_id=chat_id,
+                  headless=True,
+              )
+
+              if success:
+                  bot.send_message(chat_id, 'Parking purchased successfully!')
+              else:
+                  bot.send_message(chat_id, 'Parking purchase FAILED. Ask DJ to check logs.')
+                  failed = True
+
+          if failed:
               sys.exit(1)
           "
-        env:
-          SKIP_PROMPT: ${{ github.event.inputs.skip_prompt }}
 
       - name: Upload screenshots on failure
         if: failure()
@@ -108,11 +104,3 @@ jobs:
           name: screenshots
           path: screenshots/
           if-no-files-found: ignore
-
-      - name: Send failure notification
-        if: failure()
-        run: |
-          python -c "
-          import bot
-          bot.send_message('Parking workflow failed! Check GitHub Actions logs.')
-          "
