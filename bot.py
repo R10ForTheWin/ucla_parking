@@ -133,7 +133,7 @@ def ask_for_structure(chat_id):
     keyboard = {
         "inline_keyboard": [
             [
-                {"text": "Structure 4 (default)", "callback_data": "struct_4"},
+                {"text": "Structure 4", "callback_data": "struct_4"},
                 {"text": "P7", "callback_data": "struct_p7"},
             ]
         ]
