@@ -246,7 +246,7 @@ def send_purchase_prompts(users):
                 ]
             ]
         }
-        caption = "\U0001F43B\U0001F4DB Buy UCLA day pass today?\n\nYellow 1-Day Student \u2014 ~$7.28"
+        caption = "\U0001F43B Buy UCLA day pass today?\n\nYellow 1-Day Student \u2014 ~$7.28"
         try:
             if has_image:
                 with open(bruin_img, "rb") as f:
