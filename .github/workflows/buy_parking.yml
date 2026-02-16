@@ -88,7 +88,8 @@ jobs:
               print(f'--- Processing {name} ---')
 
               # Ask for plate
-              plate = bot.ask_for_plate(chat_id, user['default_plate'])
+              plates = user.get('plates', [user['default_plate']] if 'default_plate' in user else [])
+              plate = bot.ask_for_plate(chat_id, plates)
               if not plate:
                   bot.send_message(chat_id, 'No plate selected. Skipping.')
                   continue

@@ -25,7 +25,8 @@ def main():
     responses = bot.poll_all_responses(prompts)
 
     if responses.get(str(chat_id)):
-        plate = bot.ask_for_plate(chat_id, user["default_plate"])
+        plates = user.get("plates", [user["default_plate"]] if "default_plate" in user else [])
+        plate = bot.ask_for_plate(chat_id, plates)
         if not plate:
             print("No plate selected.")
             sys.exit(0)

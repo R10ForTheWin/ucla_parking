@@ -66,12 +66,28 @@ def send_photo(chat_id, photo_path, caption=""):
     resp.raise_for_status()
 
 
-def ask_for_plate(chat_id, default_plate):
-    """Ask which license plate to use. Returns the plate string or None."""
+def ask_for_plate(chat_id, plates):
+    """Pick which license plate to use.
+
+    Args:
+        plates: list of plate strings (e.g. ["9VSK311"] or ["9VSK311", "ABC1234"])
+
+    - 1 plate  → auto-selects it with a confirmation message
+    - 2+ plates → shows buttons to pick one
+    Returns the chosen plate string, or None if timed out.
+    """
+    if not plates:
+        return None
+
+    if len(plates) == 1:
+        _send(chat_id, f"Using plate *{plates[0]}*", parse_mode="Markdown")
+        return plates[0]
+
+    # Multiple plates — show selection buttons
     keyboard = {
         "inline_keyboard": [
-            [{"text": f"{default_plate} (default)", "callback_data": f"plate_default"}],
-            [{"text": "Different plate", "callback_data": "plate_other"}],
+            [{"text": plate, "callback_data": f"plate_{i}"}]
+            for i, plate in enumerate(plates)
         ]
     }
     message_id = _send(chat_id, "Which car are you driving today?", reply_markup=keyboard)
@@ -95,14 +111,12 @@ def ask_for_plate(chat_id, default_plate):
                 timeout=10,
             )
 
-            if callback["data"] == "plate_default":
-                _edit(chat_id, message_id,
-                      f"Which car are you driving today? → *{default_plate}*",
-                      parse_mode="Markdown")
-                return default_plate
-            else:
-                _edit(chat_id, message_id, "Type your license plate number:")
-                return _wait_for_text_reply(chat_id, last_update_id, upper=True)
+            idx = int(callback["data"].split("_")[1])
+            chosen = plates[idx]
+            _edit(chat_id, message_id,
+                  f"Which car are you driving today? → *{chosen}*",
+                  parse_mode="Markdown")
+            return chosen
 
         time.sleep(config.TELEGRAM_POLL_INTERVAL)
 
@@ -246,7 +260,7 @@ def poll_all_responses(prompts, timeout=None):
 def collect_registration(chat_id):
     """Walk a new user through registration via Telegram DMs.
 
-    Returns dict with ucla_username, ucla_password, default_plate or None.
+    Returns dict with ucla_username, ucla_password, plates or None.
     """
     last_update_id = _flush_updates()
 
@@ -264,17 +278,63 @@ def collect_registration(chat_id):
         return None
     last_update_id = _flush_updates()
 
-    _send(chat_id, "What is your default license plate number?")
+    # Collect license plates
+    _send(chat_id, "What is your license plate number?")
     plate = _wait_for_text_reply(chat_id, last_update_id, upper=True)
     if not plate:
         _send(chat_id, "Registration timed out.")
         return None
+    plates = [plate]
 
-    _send(chat_id, f"You're all set!\n\nUsername: {username}\nPlate: {plate}\n\nYou'll get a parking prompt every Fri & Sat at 7 AM.")
+    # Ask if they have a second car
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "Yes", "callback_data": "add_yes"},
+                {"text": "No", "callback_data": "add_no"},
+            ]
+        ]
+    }
+    msg_id = _send(chat_id, "Do you have a second car?", reply_markup=keyboard)
+    last_update_id = _flush_updates()
+
+    deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
+    while time.time() < deadline:
+        updates = _get_updates(offset=last_update_id + 1)
+        for update in updates:
+            last_update_id = update["update_id"]
+            callback = update.get("callback_query")
+            if not callback:
+                continue
+            if callback.get("message", {}).get("message_id") != msg_id:
+                continue
+
+            requests.post(
+                f"{TELEGRAM_API}/answerCallbackQuery",
+                json={"callback_query_id": callback["id"]},
+                timeout=10,
+            )
+
+            if callback["data"] == "add_yes":
+                _edit(chat_id, msg_id, "Do you have a second car? → *Yes*", parse_mode="Markdown")
+                _send(chat_id, "What is the second license plate?")
+                plate2 = _wait_for_text_reply(chat_id, last_update_id, upper=True)
+                if plate2:
+                    plates.append(plate2)
+            else:
+                _edit(chat_id, msg_id, "Do you have a second car? → *No*", parse_mode="Markdown")
+            break
+        else:
+            time.sleep(config.TELEGRAM_POLL_INTERVAL)
+            continue
+        break
+
+    plates_str = ", ".join(plates)
+    _send(chat_id, f"You're all set!\n\nUsername: {username}\nPlates: {plates_str}\n\nYou'll get a parking prompt on class days at 7 AM.")
     return {
         "ucla_username": username,
         "ucla_password": password,
-        "default_plate": plate,
+        "plates": plates,
     }
 
 
