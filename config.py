@@ -14,7 +14,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 # Timeouts (seconds)
 DUO_WAIT_TIMEOUT = 120        # How long to wait for DUO 2FA approval
 QUEUE_IT_TIMEOUT = 300         # How long to wait in Queue-it waiting room
-TELEGRAM_POLL_TIMEOUT = 1800   # 30 min to respond to Yes/No prompt
+TELEGRAM_POLL_TIMEOUT = 6000   # 100 min to respond to Yes/No prompt
 TELEGRAM_POLL_INTERVAL = 5     # Poll every 5 seconds
 PAGE_LOAD_TIMEOUT = 60000      # Playwright page timeout (ms)
 
