@@ -31,11 +31,15 @@ def main():
             print("No plate selected.")
             sys.exit(0)
 
+        structure = bot.ask_for_structure(chat_id)
+
         print(f"Approved! Starting purchase (plate: {plate})...")
+        bot.send_message(chat_id, f"Purchasing Yellow 1-Day pass (~$7.28)\nPlate: {plate}\n\nStarting now...")
         success = buy_parking.run(
             username=user["ucla_username"],
             password=user["ucla_password"],
             plate=plate,
+            structure=structure,
             chat_id=chat_id,
             headless=headless,
             dry_run=dry_run,

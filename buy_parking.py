@@ -58,7 +58,7 @@ def _handle_duo_passcode(page, chat_id):
     print("DUO 2FA complete.")
 
 
-def _do_purchase(page, username, password, plate, chat_id, dry_run=False):
+def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=False):
     """Execute the full purchase flow for a single user."""
 
     # ── Step 1: Navigate to portal ──
@@ -105,8 +105,8 @@ def _do_purchase(page, username, password, plate, chat_id, dry_run=False):
     page.get_by_role("button", name="Next >>").click()
 
     # ── Step 8: Select parking area ──
-    print("Selecting parking area...")
-    page.get_by_label("Parking Area").select_option("2127")
+    print(f"Selecting parking area ({structure})...")
+    page.get_by_label("Parking Area").select_option(structure)
     page.get_by_role("button", name="Next >>").click()
 
     # ── Step 9: Confirm purchase ──
@@ -123,7 +123,7 @@ def _do_purchase(page, username, password, plate, chat_id, dry_run=False):
     print("Transaction submitted.")
 
 
-def run(username, password, plate, chat_id, headless=True, dry_run=False):
+def run(username, password, plate, structure, chat_id, headless=True, dry_run=False):
     """Run the full purchase flow for one user. Returns True on success."""
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
@@ -132,7 +132,7 @@ def run(username, password, plate, chat_id, headless=True, dry_run=False):
         page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
 
         try:
-            _do_purchase(page, username, password, plate, chat_id, dry_run=dry_run)
+            _do_purchase(page, username, password, plate, structure, chat_id, dry_run=dry_run)
             _screenshot(page, "success")
             print("Purchase completed successfully!")
             return True
@@ -151,6 +151,7 @@ if __name__ == "__main__":
         username=config.UCLA_USERNAME,
         password=config.UCLA_PASSWORD,
         plate="9VSK311",
+        structure=config.STRUCTURE_4,
         chat_id=config.TELEGRAM_CHAT_ID,
         headless=headless,
         dry_run=dry_run,

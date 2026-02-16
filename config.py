@@ -21,6 +21,10 @@ PAGE_LOAD_TIMEOUT = 60000      # Playwright page timeout (ms)
 # Retry
 MAX_RETRIES = 2
 
+# Parking structures (option values from the Parking Area dropdown)
+STRUCTURE_4 = "2127"     # Structure 4 (default)
+STRUCTURE_P7 = "2130"    # P7 — confirm this value from the dropdown
+
 # Screenshots
 SCREENSHOT_DIR = "screenshots"
 

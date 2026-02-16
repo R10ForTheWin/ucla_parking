@@ -123,6 +123,56 @@ def ask_for_plate(chat_id, plates):
     return None
 
 
+def ask_for_structure(chat_id):
+    """Ask which parking structure. Default is Structure 4, option for P7.
+
+    Returns the option value for the Parking Area dropdown.
+    """
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "Structure 4 (default)", "callback_data": "struct_4"},
+                {"text": "P7", "callback_data": "struct_p7"},
+            ]
+        ]
+    }
+    message_id = _send(chat_id, "Which parking structure?", reply_markup=keyboard)
+
+    deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
+    last_update_id = 0
+
+    while time.time() < deadline:
+        updates = _get_updates(offset=last_update_id + 1)
+        for update in updates:
+            last_update_id = update["update_id"]
+            callback = update.get("callback_query")
+            if not callback:
+                continue
+            if callback.get("message", {}).get("message_id") != message_id:
+                continue
+
+            requests.post(
+                f"{TELEGRAM_API}/answerCallbackQuery",
+                json={"callback_query_id": callback["id"]},
+                timeout=10,
+            )
+
+            if callback["data"] == "struct_4":
+                _edit(chat_id, message_id,
+                      "Which parking structure? → *Structure 4*",
+                      parse_mode="Markdown")
+                return config.STRUCTURE_4
+            else:
+                _edit(chat_id, message_id,
+                      "Which parking structure? → *P7*",
+                      parse_mode="Markdown")
+                return config.STRUCTURE_P7
+
+        time.sleep(config.TELEGRAM_POLL_INTERVAL)
+
+    return config.STRUCTURE_4  # default if timed out
+
+
 def ask_for_duo_code(chat_id):
     """Ask for DUO passcode via Telegram. Returns code string or None."""
     last_update_id = _flush_updates()
@@ -192,7 +242,7 @@ def send_purchase_prompts(users):
             ]
         }
         try:
-            msg_id = _send(chat_id, "Buy UCLA parking today?", reply_markup=keyboard)
+            msg_id = _send(chat_id, "Buy UCLA day pass today?\n\nYellow 1-Day Student — ~$7.28", reply_markup=keyboard)
             prompts[str(chat_id)] = msg_id
         except Exception as e:
             print(f"Failed to send prompt to {chat_id}: {e}")

@@ -94,12 +94,16 @@ jobs:
                   bot.send_message(chat_id, 'No plate selected. Skipping.')
                   continue
 
-              bot.send_message(chat_id, f'Starting parking purchase (plate: {plate})...')
+              # Ask for parking structure
+              structure = bot.ask_for_structure(chat_id)
+
+              bot.send_message(chat_id, f'Purchasing Yellow 1-Day pass (~$7.28)\nPlate: {plate}\n\nStarting now...')
 
               success = buy_parking.run(
                   username=user['ucla_username'],
                   password=user['ucla_password'],
                   plate=plate,
+                  structure=structure,
                   chat_id=chat_id,
                   headless=True,
               )
