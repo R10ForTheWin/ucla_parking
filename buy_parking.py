@@ -63,7 +63,7 @@ def _handle_duo_passcode(page):
     print("DUO 2FA complete.")
 
 
-def _do_purchase(page, dry_run=False):
+def _do_purchase(page, dry_run=False, plate="9VSK311"):
     """Execute the full purchase flow. If dry_run=True, stop before final transaction."""
 
     # ── Step 1: Navigate to portal ──
@@ -104,8 +104,8 @@ def _do_purchase(page, dry_run=False):
     page.get_by_role("button", name="Next >>").click()
 
     # ── Step 7: Select vehicle ──
-    print("Selecting vehicle...")
-    page.get_by_role("checkbox", name="9VSK311").check()
+    print(f"Selecting vehicle ({plate})...")
+    page.get_by_role("checkbox", name=plate).check()
     page.get_by_role("button", name="Next >>").click()
 
     # ── Step 8: Select parking area ──
@@ -127,7 +127,7 @@ def _do_purchase(page, dry_run=False):
     print("Transaction submitted.")
 
 
-def run(headless=True, dry_run=False):
+def run(headless=True, dry_run=False, plate="9VSK311"):
     """Run the full purchase flow. Returns True on success."""
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
@@ -136,7 +136,7 @@ def run(headless=True, dry_run=False):
         page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
 
         try:
-            _do_purchase(page, dry_run=dry_run)
+            _do_purchase(page, dry_run=dry_run, plate=plate)
             _screenshot(page, "success")
             print("Purchase completed successfully!")
             return True

@@ -89,6 +89,114 @@ def poll_for_response(message_id):
     return None
 
 
+def ask_for_plate():
+    """Ask which license plate to use. Returns the plate string.
+
+    Shows 9VSK311 as default button, with option to type a different one.
+    """
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "9VSK311 (default)", "callback_data": "plate_9VSK311"}],
+            [{"text": "Different plate", "callback_data": "plate_other"}],
+        ]
+    }
+    resp = requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={
+            "chat_id": config.TELEGRAM_CHAT_ID,
+            "text": "Which car are you driving today?",
+            "reply_markup": keyboard,
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    message_id = resp.json()["result"]["message_id"]
+
+    # Poll for callback
+    deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
+    last_update_id = 0
+
+    while time.time() < deadline:
+        resp = requests.get(
+            f"{TELEGRAM_API}/getUpdates",
+            params={"offset": last_update_id + 1, "timeout": 10},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        updates = resp.json().get("result", [])
+
+        for update in updates:
+            last_update_id = update["update_id"]
+            callback = update.get("callback_query")
+            if not callback:
+                continue
+            if callback.get("message", {}).get("message_id") != message_id:
+                continue
+
+            requests.post(
+                f"{TELEGRAM_API}/answerCallbackQuery",
+                json={"callback_query_id": callback["id"]},
+                timeout=10,
+            )
+
+            if callback["data"] == "plate_9VSK311":
+                requests.post(
+                    f"{TELEGRAM_API}/editMessageText",
+                    json={
+                        "chat_id": config.TELEGRAM_CHAT_ID,
+                        "message_id": message_id,
+                        "text": "Which car are you driving today? → *9VSK311*",
+                        "parse_mode": "Markdown",
+                    },
+                    timeout=10,
+                )
+                return "9VSK311"
+            else:
+                # Ask them to type the plate
+                requests.post(
+                    f"{TELEGRAM_API}/editMessageText",
+                    json={
+                        "chat_id": config.TELEGRAM_CHAT_ID,
+                        "message_id": message_id,
+                        "text": "Type your license plate number:",
+                    },
+                    timeout=10,
+                )
+                return _wait_for_text_reply(last_update_id)
+
+        time.sleep(config.TELEGRAM_POLL_INTERVAL)
+
+    return None
+
+
+def _wait_for_text_reply(last_update_id):
+    """Wait for a text message reply. Returns the text or None."""
+    deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
+    while time.time() < deadline:
+        resp = requests.get(
+            f"{TELEGRAM_API}/getUpdates",
+            params={"offset": last_update_id + 1, "timeout": 10},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        updates = resp.json().get("result", [])
+
+        for update in updates:
+            last_update_id = update["update_id"]
+            msg = update.get("message")
+            if not msg:
+                continue
+            if str(msg.get("chat", {}).get("id")) != str(config.TELEGRAM_CHAT_ID):
+                continue
+            text = msg.get("text", "").strip()
+            if text:
+                return text.upper()
+
+        time.sleep(config.TELEGRAM_POLL_INTERVAL)
+
+    return None
+
+
 def ask_for_duo_code():
     """Send a Telegram message asking for the DUO code, then wait for a reply.
 
