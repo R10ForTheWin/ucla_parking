@@ -1,7 +1,14 @@
 name: Register New Users
 
 on:
+  schedule:
+    # Check for new users every 2 hours
+    - cron: "0 */2 * * *"
   workflow_dispatch:
+
+concurrency:
+  group: register
+  cancel-in-progress: false
 
 jobs:
   register:
