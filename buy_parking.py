@@ -1,8 +1,6 @@
-"""Main Playwright script to automate UCLA parking purchase.
+"""Playwright script to automate UCLA parking purchase.
 
-This is a scaffold. After running `playwright codegen` to record your
-actual purchase flow, paste the recorded steps into the `_do_purchase`
-method and adjust as needed.
+Based on recorded flow from playwright codegen.
 """
 
 import os
@@ -28,49 +26,31 @@ def _screenshot(page, name):
 
 def _wait_for_queue_it(page):
     """If Queue-it waiting room appears, wait until redirected through."""
-    if "queue-it" in page.url.lower() or "queue.t2hosted" in page.url.lower():
-        print("In Queue-it waiting room, waiting...")
-        deadline = time.time() + config.QUEUE_IT_TIMEOUT
-        while time.time() < deadline:
-            if "queue-it" not in page.url.lower() and "queue.t2hosted" not in page.url.lower():
-                print("Passed through Queue-it.")
-                return
-            time.sleep(5)
-        raise TimeoutError("Stuck in Queue-it waiting room")
-
-
-def _login_sso(page):
-    """Handle UCLA SSO login page."""
-    # Wait for the SSO login form
-    page.wait_for_selector('input[name="loginfmt"], input[name="j_username"], input#username', timeout=15000)
-
-    # Try common UCLA SSO field selectors
-    username_sel = page.query_selector('input[name="loginfmt"]') or \
-                   page.query_selector('input[name="j_username"]') or \
-                   page.query_selector('input#username')
-    password_sel = page.query_selector('input[name="passwd"]') or \
-                   page.query_selector('input[name="j_password"]') or \
-                   page.query_selector('input#password')
-
-    if username_sel:
-        username_sel.fill(config.UCLA_USERNAME)
-    if password_sel:
-        password_sel.fill(config.UCLA_PASSWORD)
-
-    # Submit
-    submit = page.query_selector('input[type="submit"], button[type="submit"]')
-    if submit:
-        submit.click()
+    if "queue-it" not in page.url.lower() and "queue.t2hosted" not in page.url.lower():
+        return
+    print("In Queue-it waiting room, waiting...")
+    deadline = time.time() + config.QUEUE_IT_TIMEOUT
+    while time.time() < deadline:
+        if "queue-it" not in page.url.lower() and "queue.t2hosted" not in page.url.lower():
+            print("Passed through Queue-it.")
+            return
+        time.sleep(5)
+    raise TimeoutError("Stuck in Queue-it waiting room")
 
 
 def _wait_for_duo(page):
-    """Wait for the user to approve the DUO 2FA push on their phone."""
-    print("Waiting for DUO 2FA approval...")
+    """Wait for the user to approve DUO 2FA on their phone.
+
+    The recording showed a passcode flow, but in automated mode we use
+    DUO push instead. We wait until the page navigates away from the
+    login/DUO pages.
+    """
+    print("Waiting for DUO 2FA approval (check your phone)...")
     deadline = time.time() + config.DUO_WAIT_TIMEOUT
     while time.time() < deadline:
-        # DUO completed when we leave the DUO/SSO pages
         url = page.url.lower()
-        if "duosecurity" not in url and "shibboleth" not in url and "login" not in url:
+        # Once we leave SSO/DUO pages, auth is complete
+        if "duosecurity" not in url and "shibboleth" not in url and "login" not in url and "idp" not in url:
             print("DUO 2FA approved.")
             return
         time.sleep(3)
@@ -78,33 +58,68 @@ def _wait_for_duo(page):
 
 
 def _do_purchase(page):
-    """Execute the recorded purchase flow.
+    """Execute the full purchase flow."""
 
-    TODO: Replace this with your recorded Playwright codegen steps.
-    Run `playwright codegen https://bruinepermit.t2hosted.com` to record.
-    """
-    # ── Step 1: Navigate to the ePermit site ──
-    page.goto(config.EPERMIT_URL, timeout=config.PAGE_LOAD_TIMEOUT)
+    # ── Step 1: Navigate to portal ──
+    print("Navigating to ePermit portal...")
+    page.goto("https://bruinepermit.t2hosted.com/Account/Portal", timeout=config.PAGE_LOAD_TIMEOUT)
     _wait_for_queue_it(page)
 
-    # ── Step 2: Click login / buy permit (adjust selector from recording) ──
-    # Example: page.click('text=Login')
-    # Example: page.click('a:has-text("Buy a Permit")')
-    raise NotImplementedError(
-        "Purchase flow not yet recorded. "
-        "Run: python -m playwright codegen https://bruinepermit.t2hosted.com\n"
-        "Then paste the recorded steps into buy_parking.py:_do_purchase()"
-    )
+    # ── Step 2: Start permit flow ──
+    print("Clicking 'Get Permits'...")
+    page.get_by_role("button", name=" Get Permits").click()
+    page.get_by_role("button", name="UCLA Logon").click()
 
-    # ── Step 3: SSO login ──
-    # _login_sso(page)
-    # _wait_for_duo(page)
+    # ── Step 3: UCLA SSO login ──
+    print("Logging in with UCLA credentials...")
+    page.get_by_placeholder("Your UCLA Logon ID").fill(config.UCLA_USERNAME)
+    page.get_by_placeholder("Your UCLA Logon ID").press("Tab")
+    page.get_by_placeholder("Your UCLA Logon Password").fill(config.UCLA_PASSWORD)
+    page.get_by_role("button", name="Sign In").click()
 
-    # ── Step 4: Select permit & checkout ──
-    # (paste recorded steps here)
+    # ── Step 4: DUO 2FA ──
+    # Try to trigger a DUO push automatically, then wait for approval
+    try:
+        push_btn = page.get_by_role("button", name="Send Me a Push")
+        push_btn.wait_for(timeout=10000)
+        push_btn.click()
+        print("DUO push sent.")
+    except PwTimeout:
+        # Maybe it auto-sends or shows a different UI
+        print("No push button found, waiting for DUO prompt...")
 
-    # ── Step 5: Confirm purchase ──
-    # (paste recorded steps here)
+    _wait_for_duo(page)
+
+    # ── Step 5: Permit selection page ──
+    print("Selecting permit...")
+    page.wait_for_url("**/per/index.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
+    page.get_by_role("button", name="Next >>").click()
+
+    # ── Step 6: Choose Yellow / 1-Day Student permit ──
+    page.wait_for_url("**/per/selectpermit.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
+    page.get_by_role("radio", name="Yellow / 1-Day Student").check()
+    page.get_by_role("checkbox", name="I agree to abide by my").check()
+    page.get_by_role("checkbox", name="I agree to the University").check()
+    page.get_by_role("button", name="Next >>").click()
+
+    # ── Step 7: Select vehicle ──
+    print("Selecting vehicle...")
+    page.get_by_role("checkbox", name="9VSK311").check()
+    page.get_by_role("button", name="Next >>").click()
+
+    # ── Step 8: Select parking area ──
+    print("Selecting parking area...")
+    page.get_by_label("Parking Area").select_option("2127")
+    page.get_by_role("button", name="Next >>").click()
+
+    # ── Step 9: Confirm purchase ──
+    print("Confirming purchase...")
+    _screenshot(page, "pre_purchase")
+    page.get_by_role("button", name="Process Transaction").click()
+
+    # Wait for confirmation page
+    page.wait_for_load_state("networkidle", timeout=config.PAGE_LOAD_TIMEOUT)
+    print("Transaction submitted.")
 
 
 def run(headless=True):
@@ -120,9 +135,6 @@ def run(headless=True):
             _screenshot(page, "success")
             print("Purchase completed successfully!")
             return True
-        except NotImplementedError as e:
-            print(f"SETUP NEEDED: {e}")
-            return False
         except Exception as e:
             print(f"Purchase failed: {e}")
             _screenshot(page, "error")
