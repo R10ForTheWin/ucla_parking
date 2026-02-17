@@ -161,7 +161,86 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
 
     # ── Step 8: Select parking area ──
     print(f"Selecting parking area ({structure})...")
-    page.get_by_label("Parking Area").select_option(structure)
+    dropdown = page.get_by_label("Parking Area")
+
+    # Check if the selected structure is available in the dropdown
+    available_options = dropdown.evaluate(
+        "el => Array.from(el.options).map(o => ({value: o.value, text: o.text, disabled: o.disabled}))"
+    )
+    selected_available = any(
+        o["value"] == structure and not o.get("disabled", False)
+        for o in available_options
+    )
+
+    if not selected_available:
+        # Offer the other structure
+        if structure == config.STRUCTURE_4:
+            alt_structure = config.STRUCTURE_P7
+            sold_out_name = "P4"
+            alt_name = "P7"
+        else:
+            alt_structure = config.STRUCTURE_4
+            sold_out_name = "P7"
+            alt_name = "P4"
+
+        alt_available = any(
+            o["value"] == alt_structure and not o.get("disabled", False)
+            for o in available_options
+        )
+
+        if alt_available:
+            bot.send_message(chat_id, f"{sold_out_name} is sold out!")
+            # Ask if they want the other structure
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": f"Yes, use {alt_name}", "callback_data": "alt_yes"},
+                        {"text": "No, cancel", "callback_data": "alt_no"},
+                    ]
+                ]
+            }
+            msg_id = bot._send(chat_id, f"Would you like {alt_name} instead?", reply_markup=keyboard)
+
+            deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
+            last_update_id = 0
+            accepted = False
+
+            while time.time() < deadline:
+                updates = bot._get_updates(offset=last_update_id + 1)
+                for update in updates:
+                    last_update_id = update["update_id"]
+                    callback = update.get("callback_query")
+                    if not callback:
+                        continue
+                    if callback.get("message", {}).get("message_id") != msg_id:
+                        continue
+
+                    accepted = callback["data"] == "alt_yes"
+                    label = f"Yes, {alt_name}" if accepted else "Cancelled"
+                    import requests
+                    requests.post(
+                        f"{bot.TELEGRAM_API}/answerCallbackQuery",
+                        json={"callback_query_id": callback["id"], "text": label},
+                        timeout=10,
+                    )
+                    bot._edit(chat_id, msg_id,
+                              f"Would you like {alt_name} instead? → *{label}*",
+                              parse_mode="Markdown")
+                    break
+                else:
+                    time.sleep(config.TELEGRAM_POLL_INTERVAL)
+                    continue
+                break
+
+            if not accepted:
+                raise Exception(f"{sold_out_name} sold out, user declined alternative")
+
+            structure = alt_structure
+            print(f"Switched to {alt_name}")
+        else:
+            raise Exception("Both parking structures are unavailable")
+
+    dropdown.select_option(structure)
     page.get_by_role("button", name="Next >>").click()
 
     # ── Step 9: Confirm purchase ──
