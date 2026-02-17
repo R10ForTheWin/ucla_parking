@@ -148,7 +148,7 @@ def ask_for_structure(chat_id):
     keyboard = {
         "inline_keyboard": [
             [
-                {"text": "Structure 4", "callback_data": "struct_4"},
+                {"text": "P4", "callback_data": "struct_4"},
                 {"text": "P7", "callback_data": "struct_p7"},
             ]
         ]
@@ -169,7 +169,7 @@ def ask_for_structure(chat_id):
                 continue
 
             if callback["data"] == "struct_4":
-                label = "Structure 4"
+                label = "P4"
                 value = config.STRUCTURE_4
             else:
                 label = "P7"
@@ -189,7 +189,7 @@ def ask_for_structure(chat_id):
 
     # Default on timeout — notify user
     _edit(chat_id, message_id,
-          "Which parking structure? → *Structure 4* (auto-selected)",
+          "Which parking structure? → *P4* (auto-selected)",
           parse_mode="Markdown")
     return config.STRUCTURE_4
 
@@ -246,7 +246,7 @@ def ask_for_confirmation(chat_id, plate, structure):
 
     Returns True if confirmed, False otherwise.
     """
-    struct_name = "Structure 4" if structure == config.STRUCTURE_4 else "P7"
+    struct_name = "P4" if structure == config.STRUCTURE_4 else "P7"
     text = (
         f"Ready to purchase:\n\n"
         f"Yellow 1-Day Student\n"
