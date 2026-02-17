@@ -50,7 +50,7 @@ def main():
             dry_run=dry_run,
         )
         if result:
-            bot.send_message(chat_id, f"Parking purchased successfully!\n{result}")
+            bot.send_success(chat_id, result)
         else:
             bot.send_message(chat_id, "Parking purchase FAILED.")
             sys.exit(1)

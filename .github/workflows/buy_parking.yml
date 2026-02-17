@@ -151,7 +151,7 @@ jobs:
                   headless=True,
               )
               if result:
-                  bot.send_message(cid, f'Parking purchased successfully!\n{result}')
+                  bot.send_success(cid, result)
               else:
                   bot.send_message(cid, 'Parking purchase FAILED. Ask DJ to check logs.')
               return result is not None

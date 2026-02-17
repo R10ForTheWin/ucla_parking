@@ -69,6 +69,30 @@ def send_message(chat_id, text):
     _send(chat_id, text)
 
 
+def send_animation(chat_id, animation_path, caption=""):
+    """Send a GIF/animation to a specific chat."""
+    with open(animation_path, "rb") as f:
+        resp = requests.post(
+            f"{TELEGRAM_API}/sendAnimation",
+            data={"chat_id": chat_id, "caption": caption},
+            files={"animation": f},
+            timeout=30,
+        )
+    resp.raise_for_status()
+
+
+def send_success(chat_id, result_text=""):
+    """Send success celebration GIF + message."""
+    gif_path = os.path.join(ASSETS_DIR, "success.gif")
+    message = "Parking purchased successfully!"
+    if result_text:
+        message += f"\n{result_text}"
+    if os.path.exists(gif_path):
+        send_animation(chat_id, gif_path, caption=message)
+    else:
+        _send(chat_id, message)
+
+
 def send_photo(chat_id, photo_path, caption=""):
     """Send a photo to a specific chat."""
     with open(photo_path, "rb") as f:
