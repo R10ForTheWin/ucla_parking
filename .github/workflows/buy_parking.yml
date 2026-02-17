@@ -2,11 +2,12 @@ name: Buy UCLA Parking
 
 on:
   schedule:
-    # Two cron entries for year-round 7:00 AM Pacific:
-    # PST (Nov–Mar): 7 AM PST = 3:00 PM UTC
-    - cron: "0 15 * * 5,6"
-    # PDT (Mar–Nov): 7 AM PDT = 2:00 PM UTC
-    - cron: "0 14 * * 5,6"
+    # Fire early to absorb GitHub Actions cron delays.
+    # Script sleeps until exactly 6:00 AM Pacific before sending prompts.
+    # PST (Nov–Mar): 5 AM PST = 1:00 PM UTC
+    - cron: "0 13 * * 5,6"
+    # PDT (Mar–Nov): 5 AM PDT = 12:00 PM UTC
+    - cron: "0 12 * * 5,6"
   workflow_dispatch:
     inputs:
       skip_prompt:
@@ -50,10 +51,11 @@ jobs:
           is_manual = '${{ github.event_name }}' == 'workflow_dispatch'
           is_class_day = today in config.PARKING_DATES
 
-          # Deduplicate: during PST the 14:00 UTC cron fires at 6 AM, skip it
-          # During PDT the 15:00 UTC cron fires at 8 AM, skip it
-          if not is_manual and ((current_hour < 7) or (current_hour > 7)):
-              print(f'Dedup: current hour is {current_hour}, expected 7. Skipping this cron trigger.')
+          # Deduplicate: during PST the 12:00 UTC cron fires at 5 AM PDT, skip it
+          # During PDT the 13:00 UTC cron fires at 6 AM PST, skip it
+          # Accept hours 5-6 (cron target range), reject anything else
+          if not is_manual and (current_hour < 5 or current_hour > 6):
+              print(f'Dedup: current hour is {current_hour}, expected 5-6. Skipping this cron trigger.')
               is_class_day = False
 
           print(f'Today (PT): {today}, hour: {current_hour}, class day: {is_class_day}, manual: {is_manual}')
@@ -61,6 +63,23 @@ jobs:
               print('Not a class day. Skipping.')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'should_run={\"true\" if (is_class_day or is_manual) else \"false\"}\n')
+          "
+
+      - name: Wait until 6:00 AM Pacific
+        if: steps.datecheck.outputs.should_run == 'true' && github.event_name != 'workflow_dispatch'
+        run: |
+          python -c "
+          import datetime, time
+          from zoneinfo import ZoneInfo
+          pacific = ZoneInfo('America/Los_Angeles')
+          now = datetime.datetime.now(pacific)
+          target = now.replace(hour=6, minute=0, second=0, microsecond=0)
+          if now < target:
+              wait_secs = (target - now).total_seconds()
+              print(f'Current time: {now.strftime(\"%H:%M:%S\")} PT')
+              print(f'Waiting {wait_secs:.0f} seconds until 6:00 AM PT...')
+              time.sleep(wait_secs)
+          print(f'Ready! Time: {datetime.datetime.now(pacific).strftime(\"%H:%M:%S\")} PT')
           "
 
       - name: Run purchase flow for all users
