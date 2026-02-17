@@ -137,10 +137,53 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
     _handle_duo_passcode(page, chat_id)
 
     # ── Step 5: Handle orphaned cart if present ──
-    if "orphan" in page.url.lower():
-        print("Orphaned cart page detected, starting fresh...")
-        page.goto("https://bruinepermit.t2hosted.com/per/index.aspx",
-                   timeout=config.PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
+    if "orphan" in page.url.lower() or "cart" in page.url.lower():
+        print("Orphaned/stale cart page detected, starting fresh...")
+        _screenshot(page, "orphaned_cart")
+
+        # Try to click "empty cart" / "start over" button
+        empty_clicked = False
+        for pattern in [
+            re.compile(r"empty\s*cart", re.IGNORECASE),
+            re.compile(r"start\s*over", re.IGNORECASE),
+            re.compile(r"new\s*cart", re.IGNORECASE),
+            re.compile(r"clear\s*cart", re.IGNORECASE),
+            re.compile(r"abandon", re.IGNORECASE),
+        ]:
+            btn = page.get_by_role("button", name=pattern)
+            if btn.count() > 0:
+                print(f"Clicking: {btn.first.inner_text()}")
+                btn.first.click()
+                empty_clicked = True
+                break
+            link = page.get_by_role("link", name=pattern)
+            if link.count() > 0:
+                print(f"Clicking link: {link.first.inner_text()}")
+                link.first.click()
+                empty_clicked = True
+                break
+
+        if not empty_clicked:
+            # Fallback: look for any radio/option that suggests empty/new
+            for pattern in [re.compile(r"empty", re.IGNORECASE), re.compile(r"new", re.IGNORECASE)]:
+                radio = page.get_by_role("radio", name=pattern)
+                if radio.count() > 0:
+                    radio.first.check()
+                    # Click submit/continue after selecting
+                    for submit_pattern in ["Submit", "Continue", "OK", "Next"]:
+                        submit_btn = page.get_by_role("button", name=re.compile(submit_pattern, re.IGNORECASE))
+                        if submit_btn.count() > 0:
+                            submit_btn.first.click()
+                            empty_clicked = True
+                            break
+                    break
+
+        if not empty_clicked:
+            print("Could not find empty cart button, navigating directly...")
+            page.goto("https://bruinepermit.t2hosted.com/per/index.aspx",
+                       timeout=config.PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
+        else:
+            page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
 
     print("Selecting permit...")
     page.wait_for_url("**/per/index.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
