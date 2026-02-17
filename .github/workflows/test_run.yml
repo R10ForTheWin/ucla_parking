@@ -61,10 +61,15 @@ jobs:
               # Step 3: Structure
               structure = bot.ask_for_structure(chat_id)
 
-              bot.send_message(chat_id, f'Purchasing Yellow 1-Day pass (\$8.01)\nPlate: {plate}\n\nStarting now...')
+              # Step 4: Confirmation
+              if not bot.ask_for_confirmation(chat_id, plate, structure):
+                  bot.send_message(chat_id, 'Test cancelled.')
+                  continue
 
-              # Step 4: Run with DRY RUN
-              success = buy_parking.run(
+              bot.send_message(chat_id, 'Starting dry run now...')
+
+              # Step 5: Run with DRY RUN
+              result = buy_parking.run(
                   username=user['ucla_username'],
                   password=user['ucla_password'],
                   plate=plate,
@@ -74,7 +79,7 @@ jobs:
                   dry_run=True,
               )
 
-              if success:
+              if result:
                   bot.send_message(chat_id, '\u2705 DRY RUN complete! No purchase was made.\n\nThis was a test — the real thing will look exactly like this.')
               else:
                   bot.send_message(chat_id, '\u274c Dry run failed. Check GitHub Actions logs.')

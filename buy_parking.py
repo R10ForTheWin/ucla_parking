@@ -4,6 +4,7 @@ Based on recorded flow from playwright codegen. Supports multi-user.
 """
 
 import os
+import re
 import sys
 import time
 from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
@@ -58,6 +59,59 @@ def _handle_duo_passcode(page, chat_id):
     print("DUO 2FA complete.")
 
 
+def _find_permit_radio(page):
+    """Find the 1-Day Student permit radio button with flexible matching."""
+    # Try exact name first
+    radio = page.get_by_role("radio", name="Yellow / 1-Day Student")
+    if radio.count() > 0:
+        return radio
+
+    # Try partial matches
+    for pattern in ["1-Day Student", "1-Day", "Yellow"]:
+        radio = page.get_by_role("radio", name=re.compile(pattern, re.IGNORECASE))
+        if radio.count() > 0:
+            print(f"Found permit via pattern: {pattern}")
+            return radio
+
+    # Log what's available for debugging
+    all_radios = page.get_by_role("radio").all()
+    names = []
+    for r in all_radios:
+        label = r.get_attribute("aria-label") or r.inner_text()
+        names.append(label)
+    print(f"Available permits: {names}")
+    raise Exception(f"Could not find 1-Day Student permit. Available: {names}")
+
+
+def _verify_purchase_success(page):
+    """Check the confirmation page for success indicators. Returns confirmation text or None."""
+    try:
+        page.wait_for_load_state("networkidle", timeout=config.PAGE_LOAD_TIMEOUT)
+        body = page.inner_text("body")
+
+        # Look for common success indicators
+        success_patterns = ["confirmation", "receipt", "transaction complete", "successfully"]
+        for pattern in success_patterns:
+            if pattern.lower() in body.lower():
+                # Try to extract confirmation/receipt number
+                match = re.search(r'(?:confirmation|receipt|transaction)\s*(?:#|number|no)?[:\s]*(\w+)', body, re.IGNORECASE)
+                if match:
+                    return f"Confirmation: {match.group(1)}"
+                return "Purchase confirmed"
+
+        # Look for error indicators
+        error_patterns = ["error", "failed", "declined", "unable", "not available"]
+        for pattern in error_patterns:
+            if pattern.lower() in body.lower():
+                return None
+
+        # If we can't determine, assume success (page loaded without error)
+        return "Transaction submitted"
+    except Exception as e:
+        print(f"Error verifying purchase: {e}")
+        return None
+
+
 def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=False):
     """Execute the full purchase flow for a single user."""
 
@@ -69,7 +123,7 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
 
     # ── Step 2: Start permit flow ──
     print("Clicking 'Get Permits'...")
-    page.get_by_role("button", name=" Get Permits").click()
+    page.get_by_role("button", name=re.compile(r"Get Permits", re.IGNORECASE)).click()
     page.get_by_role("button", name="UCLA Logon").click()
 
     # ── Step 3: UCLA SSO login ──
@@ -83,7 +137,7 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
     _handle_duo_passcode(page, chat_id)
 
     # ── Step 5: Handle orphaned cart if present ──
-    if "orphan" in page.url.lower() or "assumeOrphanedCart" in page.url:
+    if "orphan" in page.url.lower():
         print("Orphaned cart page detected, starting fresh...")
         page.goto("https://bruinepermit.t2hosted.com/per/index.aspx",
                    timeout=config.PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
@@ -94,7 +148,8 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
 
     # ── Step 6: Choose Yellow / 1-Day Student permit ──
     page.wait_for_url("**/per/selectpermit.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
-    page.get_by_role("radio", name="Yellow / 1-Day Student").check()
+    permit_radio = _find_permit_radio(page)
+    permit_radio.check()
     page.get_by_role("checkbox", name="I agree to abide by my").check()
     page.get_by_role("checkbox", name="I agree to the University").check()
     page.get_by_role("button", name="Next >>").click()
@@ -113,41 +168,60 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
     _screenshot(page, "pre_purchase")
     if dry_run:
         print("DRY RUN — stopping before 'Process Transaction'. Screenshot saved.")
-        return
+        return "DRY RUN complete"
 
     print("Confirming purchase...")
     page.get_by_role("button", name="Process Transaction").click()
 
-    # Wait for confirmation page
-    page.wait_for_load_state("networkidle", timeout=config.PAGE_LOAD_TIMEOUT)
-    print("Transaction submitted.")
+    # Verify purchase succeeded
+    result = _verify_purchase_success(page)
+    if result:
+        print(f"Purchase verified: {result}")
+        return result
+    else:
+        raise Exception("Purchase may have failed — no confirmation found on page")
 
 
 def run(username, password, plate, structure, chat_id, headless=True, dry_run=False):
-    """Run the full purchase flow for one user. Returns True on success."""
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
-        context = browser.new_context()
-        page = context.new_page()
-        page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
+    """Run the full purchase flow for one user with retries. Returns success string or None."""
+    last_error = None
 
-        try:
-            _do_purchase(page, username, password, plate, structure, chat_id, dry_run=dry_run)
-            _screenshot(page, "success")
-            print("Purchase completed successfully!")
-            return True
-        except Exception as e:
-            print(f"Purchase failed: {e}")
-            _screenshot(page, "error")
-            return False
-        finally:
-            browser.close()
+    for attempt in range(1, config.MAX_RETRIES + 1):
+        if attempt > 1:
+            print(f"Retry attempt {attempt}/{config.MAX_RETRIES}...")
+            bot.send_message(chat_id, f"Retrying... (attempt {attempt}/{config.MAX_RETRIES})")
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=headless)
+            context = browser.new_context()
+            page = context.new_page()
+            page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
+
+            try:
+                result = _do_purchase(page, username, password, plate, structure, chat_id, dry_run=dry_run)
+                _screenshot(page, "success")
+                print("Purchase completed successfully!")
+                return result
+            except Exception as e:
+                last_error = e
+                print(f"Purchase failed (attempt {attempt}): {e}")
+                error_path = _screenshot(page, f"error_attempt{attempt}")
+                # Send error screenshot to user
+                try:
+                    bot.send_photo(chat_id, error_path, caption=f"Error on attempt {attempt}: {e}")
+                except Exception:
+                    pass
+            finally:
+                browser.close()
+
+    print(f"All {config.MAX_RETRIES} attempts failed. Last error: {last_error}")
+    return None
 
 
 if __name__ == "__main__":
     headless = "--headless" in sys.argv
     dry_run = "--dry-run" in sys.argv
-    success = run(
+    result = run(
         username=config.UCLA_USERNAME,
         password=config.UCLA_PASSWORD,
         plate="9VSK311",
@@ -156,4 +230,4 @@ if __name__ == "__main__":
         headless=headless,
         dry_run=dry_run,
     )
-    sys.exit(0 if success else 1)
+    sys.exit(0 if result else 1)

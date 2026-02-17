@@ -33,9 +33,14 @@ def main():
 
         structure = bot.ask_for_structure(chat_id)
 
-        print(f"Approved! Starting purchase (plate: {plate})...")
-        bot.send_message(chat_id, f"Purchasing Yellow 1-Day pass ($8.01)\nPlate: {plate}\n\nStarting now...")
-        success = buy_parking.run(
+        # Confirmation step
+        if not dry_run and not bot.ask_for_confirmation(chat_id, plate, structure):
+            print("Purchase cancelled.")
+            sys.exit(0)
+
+        print(f"Starting purchase (plate: {plate})...")
+        bot.send_message(chat_id, "Starting purchase now...")
+        result = buy_parking.run(
             username=user["ucla_username"],
             password=user["ucla_password"],
             plate=plate,
@@ -44,8 +49,8 @@ def main():
             headless=headless,
             dry_run=dry_run,
         )
-        if success:
-            bot.send_message(chat_id, "Parking purchased successfully!")
+        if result:
+            bot.send_message(chat_id, f"Parking purchased successfully!\n{result}")
         else:
             bot.send_message(chat_id, "Parking purchase FAILED.")
             sys.exit(1)

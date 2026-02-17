@@ -1,6 +1,7 @@
 """Telegram bot functions for multi-user prompts and responses."""
 
 import os
+import re
 import time
 import requests
 import config
@@ -32,6 +33,18 @@ def _edit(chat_id, message_id, text, parse_mode=None):
     requests.post(f"{TELEGRAM_API}/editMessageText", json=payload, timeout=10)
 
 
+def _delete_message(chat_id, message_id):
+    """Delete a message from a chat."""
+    try:
+        requests.post(
+            f"{TELEGRAM_API}/deleteMessage",
+            json={"chat_id": chat_id, "message_id": message_id},
+            timeout=10,
+        )
+    except Exception:
+        pass  # best-effort deletion
+
+
 def _get_updates(offset=0, timeout=10):
     """Fetch updates from Telegram."""
     resp = requests.get(
@@ -43,8 +56,8 @@ def _get_updates(offset=0, timeout=10):
     return resp.json().get("result", [])
 
 
-def _flush_updates():
-    """Flush pending updates and return the last update_id."""
+def _get_latest_update_id():
+    """Get the latest update_id without consuming updates."""
     updates = _get_updates(offset=-1, timeout=0)
     return updates[-1]["update_id"] if updates else 0
 
@@ -103,6 +116,9 @@ def ask_for_plate(chat_id, plates):
             last_update_id = update["update_id"]
             callback = update.get("callback_query")
             if not callback:
+                continue
+            cb_chat_id = str(callback.get("message", {}).get("chat", {}).get("id"))
+            if cb_chat_id != str(chat_id):
                 continue
             if callback.get("message", {}).get("message_id") != message_id:
                 continue
@@ -171,12 +187,16 @@ def ask_for_structure(chat_id):
 
         time.sleep(config.TELEGRAM_POLL_INTERVAL)
 
-    return config.STRUCTURE_4  # default if timed out
+    # Default on timeout — notify user
+    _edit(chat_id, message_id,
+          "Which parking structure? → *Structure 4* (auto-selected)",
+          parse_mode="Markdown")
+    return config.STRUCTURE_4
 
 
 def ask_for_duo_code(chat_id):
     """Ask for DUO passcode via Telegram. Returns code string or None."""
-    last_update_id = _flush_updates()
+    last_update_id = _get_latest_update_id()
     _send(chat_id, "Enter your DUO passcode:")
 
     deadline = time.time() + config.DUO_WAIT_TIMEOUT
@@ -200,7 +220,7 @@ def ask_for_duo_code(chat_id):
 
 
 def _wait_for_text_reply(chat_id, last_update_id, upper=False):
-    """Wait for a text message from a specific chat."""
+    """Wait for a text message from a specific chat. Returns (text, message_id) tuple."""
     deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
     while time.time() < deadline:
         updates = _get_updates(offset=last_update_id + 1)
@@ -213,11 +233,67 @@ def _wait_for_text_reply(chat_id, last_update_id, upper=False):
                 continue
             text = msg.get("text", "").strip()
             if text:
-                return text.upper() if upper else text
+                result = text.upper() if upper else text
+                return result, msg.get("message_id")
 
         time.sleep(config.TELEGRAM_POLL_INTERVAL)
 
-    return None
+    return None, None
+
+
+def ask_for_confirmation(chat_id, plate, structure):
+    """Show purchase summary and ask for final confirmation.
+
+    Returns True if confirmed, False otherwise.
+    """
+    struct_name = "Structure 4" if structure == config.STRUCTURE_4 else "P7"
+    text = (
+        f"Ready to purchase:\n\n"
+        f"Yellow 1-Day Student\n"
+        f"Plate: *{plate}*\n"
+        f"Structure: *{struct_name}*\n"
+        f"Total: $8.01\n\n"
+        f"Confirm purchase?"
+    )
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "Confirm", "callback_data": "confirm_yes"},
+                {"text": "Cancel", "callback_data": "confirm_no"},
+            ]
+        ]
+    }
+    message_id = _send(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
+    last_update_id = 0
+
+    while time.time() < deadline:
+        updates = _get_updates(offset=last_update_id + 1)
+        for update in updates:
+            last_update_id = update["update_id"]
+            callback = update.get("callback_query")
+            if not callback:
+                continue
+            if callback.get("message", {}).get("message_id") != message_id:
+                continue
+
+            confirmed = callback["data"] == "confirm_yes"
+            label = "Confirmed" if confirmed else "Cancelled"
+            requests.post(
+                f"{TELEGRAM_API}/answerCallbackQuery",
+                json={"callback_query_id": callback["id"], "text": label},
+                timeout=10,
+            )
+            _edit(chat_id, message_id,
+                  f"Confirm purchase? → *{label}*",
+                  parse_mode="Markdown")
+            return confirmed
+
+        time.sleep(config.TELEGRAM_POLL_INTERVAL)
+
+    _edit(chat_id, message_id, "Confirm purchase? → *Timed out*", parse_mode="Markdown")
+    return False
 
 
 # ── Multi-user prompt ──
@@ -314,27 +390,40 @@ def collect_registration(chat_id):
 
     Returns dict with ucla_username, ucla_password, plates or None.
     """
-    last_update_id = _flush_updates()
+    last_update_id = _get_latest_update_id()
 
-    _send(chat_id, "Welcome to UCLA Parking Bot! Let's get you set up.\n\nWhat is your UCLA username (Logon ID)?")
-    username = _wait_for_text_reply(chat_id, last_update_id)
+    _send(chat_id, "Welcome! I'm Justin EMBAlake, your UCLA EMBA'27 AI Parking Agent. Let's get you set up.\n\nWhat is your UCLA username (Logon ID)?")
+    username, _ = _wait_for_text_reply(chat_id, last_update_id)
     if not username:
         _send(chat_id, "Registration timed out.")
         return None
-    last_update_id = _flush_updates()
+    # Basic validation
+    username = username.strip()
+    if not username or len(username) > 50:
+        _send(chat_id, "That doesn't look like a valid UCLA Logon ID. Please try again by sending /start.")
+        return None
+    last_update_id = _get_latest_update_id()
 
-    _send(chat_id, "What is your UCLA password?")
-    password = _wait_for_text_reply(chat_id, last_update_id)
+    _send(chat_id, "What is your UCLA password?\n\n(Your message will be deleted for security)")
+    password, pw_msg_id = _wait_for_text_reply(chat_id, last_update_id)
     if not password:
         _send(chat_id, "Registration timed out.")
         return None
-    last_update_id = _flush_updates()
+    # Delete the password message from chat history
+    if pw_msg_id:
+        _delete_message(chat_id, pw_msg_id)
+    last_update_id = _get_latest_update_id()
 
     # Collect license plates
     _send(chat_id, "What is your license plate number?")
-    plate = _wait_for_text_reply(chat_id, last_update_id, upper=True)
+    plate, _ = _wait_for_text_reply(chat_id, last_update_id, upper=True)
     if not plate:
         _send(chat_id, "Registration timed out.")
+        return None
+    # Strip non-alphanumeric chars from plate
+    plate = re.sub(r'[^A-Z0-9]', '', plate)
+    if not plate:
+        _send(chat_id, "That doesn't look like a valid plate. Please try again by sending /start.")
         return None
     plates = [plate]
 
@@ -348,7 +437,7 @@ def collect_registration(chat_id):
         ]
     }
     msg_id = _send(chat_id, "Do you have a second car?", reply_markup=keyboard)
-    last_update_id = _flush_updates()
+    last_update_id = _get_latest_update_id()
 
     deadline = time.time() + config.TELEGRAM_POLL_TIMEOUT
     while time.time() < deadline:
@@ -371,9 +460,11 @@ def collect_registration(chat_id):
             if add_second:
                 _edit(chat_id, msg_id, "Do you have a second car? → *Yes*", parse_mode="Markdown")
                 _send(chat_id, "What is the second license plate?")
-                plate2 = _wait_for_text_reply(chat_id, last_update_id, upper=True)
+                plate2, _ = _wait_for_text_reply(chat_id, last_update_id, upper=True)
                 if plate2:
-                    plates.append(plate2)
+                    plate2 = re.sub(r'[^A-Z0-9]', '', plate2)
+                    if plate2:
+                        plates.append(plate2)
             if not add_second:
                 _edit(chat_id, msg_id, "Do you have a second car? → *No*", parse_mode="Markdown")
             break
@@ -397,7 +488,11 @@ def get_new_chat_ids(known_chat_ids):
     Returns list of new chat_id strings.
     """
     new_ids = []
-    updates = _get_updates(offset=-100, timeout=0)
+    # Get all pending updates without consuming them
+    try:
+        updates = _get_updates(offset=0, timeout=0)
+    except Exception:
+        updates = []
     for update in updates:
         msg = update.get("message")
         if not msg:
