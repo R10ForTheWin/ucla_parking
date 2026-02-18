@@ -34,16 +34,49 @@ def _screenshot(page, name):
     return path
 
 
-def _wait_for_queue_it(page):
+def _wait_for_queue_it(page, chat_id=None):
     """If Queue-it waiting room appears, wait until redirected through."""
     if "queue-it" not in page.url.lower() and "queue.t2hosted" not in page.url.lower():
         return
     print("In Queue-it waiting room, waiting...")
+
+    # Check for CAPTCHA — if present, we can't proceed
+    try:
+        body = page.inner_text("body").lower()
+        if "enter the code" in body or "i'm not a robot" in body or "captcha" in body:
+            _screenshot(page, "queue_it_captcha")
+            raise Exception(
+                "Queue-it is showing a CAPTCHA challenge. "
+                "The parking site may be under heavy load. "
+                "You may need to purchase manually: https://bruinepermit.t2hosted.com"
+            )
+    except Exception as e:
+        if "CAPTCHA" in str(e):
+            raise
+        pass  # inner_text failed, continue waiting
+
+    if chat_id:
+        bot.send_message(chat_id, "In the parking site queue, waiting for my turn...")
+
     deadline = time.time() + config.QUEUE_IT_TIMEOUT
     while time.time() < deadline:
         if "queue-it" not in page.url.lower() and "queue.t2hosted" not in page.url.lower():
             print("Passed through Queue-it.")
             return
+        # Re-check for CAPTCHA appearing mid-wait
+        try:
+            body = page.inner_text("body").lower()
+            if "enter the code" in body or "i'm not a robot" in body or "captcha" in body:
+                _screenshot(page, "queue_it_captcha")
+                raise Exception(
+                    "Queue-it is showing a CAPTCHA challenge. "
+                    "The parking site may be under heavy load. "
+                    "You may need to purchase manually: https://bruinepermit.t2hosted.com"
+                )
+        except Exception as e:
+            if "CAPTCHA" in str(e):
+                raise
+            pass
         time.sleep(5)
     raise TimeoutError("Stuck in Queue-it waiting room")
 
@@ -128,7 +161,7 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
     bot.send_message(chat_id, "Opening the UCLA parking site...")
     page.goto("https://bruinepermit.t2hosted.com/Account/Portal",
               timeout=config.PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
-    _wait_for_queue_it(page)
+    _wait_for_queue_it(page, chat_id)
 
     # ── Check for Bruin Bill outage ──
     body_text = page.inner_text("body")
@@ -216,6 +249,8 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
     available_options = dropdown.evaluate(
         "el => Array.from(el.options).map(o => ({value: o.value, text: o.text, disabled: o.disabled}))"
     )
+    # Log all options so we can verify dropdown values
+    print(f"Parking Area dropdown options: {available_options}")
     selected_available = any(
         o["value"] == structure and not o.get("disabled", False)
         for o in available_options

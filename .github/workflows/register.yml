@@ -44,6 +44,9 @@ jobs:
           known_ids = {str(u['telegram_chat_id']) for u in users}
           print(f'Currently {len(users)} registered user(s)')
 
+          # Always re-save to ensure PBKDF2 encryption (migrates from legacy SHA-256)
+          save_users(users)
+
           new_ids = bot.get_new_chat_ids(known_ids)
           if not new_ids:
               print('No new users found.')
