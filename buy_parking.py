@@ -313,7 +313,6 @@ def run(username, password, plate, structure, chat_id, headless=True, dry_run=Fa
     for attempt in range(1, config.MAX_RETRIES + 1):
         if attempt > 1:
             print(f"Retry attempt {attempt}/{config.MAX_RETRIES}...")
-            bot.send_message(chat_id, f"Retrying... (attempt {attempt}/{config.MAX_RETRIES})")
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=headless)
@@ -331,21 +330,39 @@ def run(username, password, plate, structure, chat_id, headless=True, dry_run=Fa
                 print(f"Bruin Bill down (attempt {attempt}): {e}")
                 _screenshot(page, f"bruin_bill_down_attempt{attempt}")
                 if attempt < config.MAX_RETRIES:
-                    bot.send_message(chat_id, f"Bruin Bill payment system is temporarily down. Retrying in {BRUIN_BILL_RETRY_DELAY // 60} min...")
+                    bot.send_message(
+                        chat_id,
+                        "The UCLA payment system (Bruin Bill) is temporarily down.\n\n"
+                        f"I'll try again in {BRUIN_BILL_RETRY_DELAY // 60} minutes. Hang tight!"
+                    )
                     time.sleep(BRUIN_BILL_RETRY_DELAY)
-                else:
-                    bot.send_message(chat_id, "Bruin Bill payment system is still down after all retries. You may need to purchase manually.")
             except Exception as e:
                 last_error = e
                 print(f"Purchase failed (attempt {attempt}): {e}")
-                error_path = _screenshot(page, f"error_attempt{attempt}")
-                try:
-                    bot.send_photo(chat_id, error_path, caption=f"Error on attempt {attempt}: {e}")
-                except Exception:
-                    pass
+                _screenshot(page, f"error_attempt{attempt}")
+                if attempt < config.MAX_RETRIES:
+                    bot.send_message(
+                        chat_id,
+                        f"Ran into an issue on the parking site (attempt {attempt}/{config.MAX_RETRIES}).\n\n"
+                        "Retrying now..."
+                    )
             finally:
                 browser.close()
 
+    # All retries exhausted — send one clean failure message
+    if isinstance(last_error, BruinBillUnavailable):
+        bot.send_message(
+            chat_id,
+            "The UCLA payment system (Bruin Bill) is still down after multiple attempts.\n\n"
+            "You may need to purchase manually today:\nhttps://bruinepermit.t2hosted.com"
+        )
+    else:
+        bot.send_message(
+            chat_id,
+            "I wasn't able to complete the purchase after multiple attempts.\n\n"
+            "The parking site may be experiencing issues. "
+            "You can try manually:\nhttps://bruinepermit.t2hosted.com"
+        )
     print(f"All {config.MAX_RETRIES} attempts failed. Last error: {last_error}")
     return None
 

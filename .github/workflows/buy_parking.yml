@@ -152,8 +152,6 @@ jobs:
               )
               if result:
                   bot.send_success(cid, result)
-              else:
-                  bot.send_message(cid, 'Parking purchase FAILED. Ask DJ to check logs.')
               return result is not None
 
           if len(purchase_queue) == 1:

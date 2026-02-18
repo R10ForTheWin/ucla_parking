@@ -52,7 +52,6 @@ def main():
         if result:
             bot.send_success(chat_id, result)
         else:
-            bot.send_message(chat_id, "Parking purchase FAILED.")
             sys.exit(1)
     else:
         print("Declined or timed out.")
