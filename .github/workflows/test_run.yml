@@ -80,7 +80,7 @@ jobs:
               )
 
               if result:
-                  bot.send_message(chat_id, '\u2705 DRY RUN complete! No purchase was made.\n\nThis was a test — the real thing will look exactly like this.')
+                  bot.send_success(chat_id, 'DRY RUN complete! No purchase was made.\n\nThis was a test — the real thing will look exactly like this.')
               else:
                   bot.send_message(chat_id, '\u274c Dry run failed. Check GitHub Actions logs.')
           "

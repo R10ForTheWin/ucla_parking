@@ -345,6 +345,16 @@ def send_purchase_prompts(users):
         }
         text = "Hello! I'm Justin. Justin EMBAlake.\nAnd I am your friendly UCLA EMBA'27 AI Parking Agent.\n\nWould you like to buy a 1-day parking pass today?\n\nYellow 1-Day Student\n$7.28 + $0.73 tax = $8.01\nCharged to Payment Method On File"
         try:
+            # Send photo silently (no notification) so it doesn't show picture frame emoji
+            photo_path = os.path.join(os.path.dirname(__file__), "assets", "justin_embalake.jpg")
+            if os.path.exists(photo_path):
+                with open(photo_path, "rb") as f:
+                    requests.post(
+                        f"{TELEGRAM_API}/sendPhoto",
+                        data={"chat_id": chat_id, "disable_notification": "true"},
+                        files={"photo": f},
+                        timeout=30,
+                    )
             msg_id = _send(chat_id, text, reply_markup=keyboard)
             prompts[str(chat_id)] = msg_id
         except Exception as e:
