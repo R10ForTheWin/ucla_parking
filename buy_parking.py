@@ -113,8 +113,8 @@ def _verify_purchase_success(page):
             if pattern.lower() in body.lower():
                 return None
 
-        # If we can't determine, assume success (page loaded without error)
-        return "Transaction submitted"
+        # Can't determine outcome — default to failure for safety
+        return None
     except Exception as e:
         print(f"Error verifying purchase: {e}")
         return None

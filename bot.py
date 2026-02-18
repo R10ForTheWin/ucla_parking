@@ -3,12 +3,16 @@
 import os
 import re
 import time
+import threading
 import requests
 import config
 
 
 TELEGRAM_API = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}"
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+
+# Lock to prevent concurrent getUpdates calls (Telegram API is single-consumer)
+_updates_lock = threading.Lock()
 
 
 # ── Low-level helpers ──
@@ -46,14 +50,15 @@ def _delete_message(chat_id, message_id):
 
 
 def _get_updates(offset=0, timeout=10):
-    """Fetch updates from Telegram."""
-    resp = requests.get(
-        f"{TELEGRAM_API}/getUpdates",
-        params={"offset": offset, "timeout": timeout},
-        timeout=timeout + 5,
-    )
-    resp.raise_for_status()
-    return resp.json().get("result", [])
+    """Fetch updates from Telegram (thread-safe)."""
+    with _updates_lock:
+        resp = requests.get(
+            f"{TELEGRAM_API}/getUpdates",
+            params={"offset": offset, "timeout": timeout},
+            timeout=timeout + 5,
+        )
+        resp.raise_for_status()
+        return resp.json().get("result", [])
 
 
 def _get_latest_update_id():
@@ -147,8 +152,11 @@ def ask_for_plate(chat_id, plates):
             if callback.get("message", {}).get("message_id") != message_id:
                 continue
 
-            idx = int(callback["data"].split("_")[1])
-            chosen = plates[idx]
+            try:
+                idx = int(callback["data"].split("_")[1])
+                chosen = plates[idx]
+            except (ValueError, IndexError):
+                continue
             requests.post(
                 f"{TELEGRAM_API}/answerCallbackQuery",
                 json={"callback_query_id": callback["id"], "text": f"Got it — {chosen}"},
@@ -189,6 +197,8 @@ def ask_for_structure(chat_id):
             callback = update.get("callback_query")
             if not callback:
                 continue
+            if str(callback.get("from", {}).get("id")) != str(chat_id):
+                continue
             if callback.get("message", {}).get("message_id") != message_id:
                 continue
 
@@ -211,9 +221,9 @@ def ask_for_structure(chat_id):
 
         time.sleep(config.TELEGRAM_POLL_INTERVAL)
 
-    # Default on timeout — notify user
+    # Timeout — don't auto-select, let confirmation step catch it
     _edit(chat_id, message_id,
-          "Which parking structure? → *P4* (auto-selected)",
+          "Which parking structure? → *P4* (default)",
           parse_mode="Markdown")
     return config.STRUCTURE_4
 
@@ -234,9 +244,14 @@ def ask_for_duo_code(chat_id):
             if str(msg.get("chat", {}).get("id")) != str(chat_id):
                 continue
             text = msg.get("text", "").strip()
-            if text:
-                _send(chat_id, f"Got it: {text}")
-                return text
+            if not text:
+                continue
+            # Validate DUO passcode (should be 6-8 digits)
+            if not re.match(r'^\d{6,8}$', text):
+                _send(chat_id, "That doesn't look like a DUO passcode. Please enter the 6-digit code:")
+                continue
+            _send(chat_id, f"Got it: {text}")
+            return text
 
         time.sleep(config.TELEGRAM_POLL_INTERVAL)
 
@@ -298,6 +313,8 @@ def ask_for_confirmation(chat_id, plate, structure):
             last_update_id = update["update_id"]
             callback = update.get("callback_query")
             if not callback:
+                continue
+            if str(callback.get("from", {}).get("id")) != str(chat_id):
                 continue
             if callback.get("message", {}).get("message_id") != message_id:
                 continue
@@ -390,8 +407,12 @@ def poll_all_responses(prompts, timeout=None):
 
             cb_msg_id = callback.get("message", {}).get("message_id")
             cb_chat_id = str(callback.get("message", {}).get("chat", {}).get("id"))
+            cb_from_id = str(callback.get("from", {}).get("id"))
 
             if cb_chat_id not in pending:
+                continue
+            # Verify the button was pressed by the correct user
+            if cb_from_id != cb_chat_id:
                 continue
             if cb_msg_id != prompts.get(cb_chat_id):
                 continue
@@ -431,9 +452,9 @@ def collect_registration(chat_id):
     if not username:
         _send(chat_id, "Registration timed out.")
         return None
-    # Basic validation
+    # Validate username format
     username = username.strip()
-    if not username or len(username) > 50:
+    if not username or len(username) > 50 or not re.match(r'^[a-zA-Z0-9._-]+$', username):
         _send(chat_id, "That doesn't look like a valid UCLA Logon ID. Please try again by sending /start.")
         return None
     last_update_id = _get_latest_update_id()
@@ -480,6 +501,8 @@ def collect_registration(chat_id):
             last_update_id = update["update_id"]
             callback = update.get("callback_query")
             if not callback:
+                continue
+            if str(callback.get("from", {}).get("id")) != str(chat_id):
                 continue
             if callback.get("message", {}).get("message_id") != msg_id:
                 continue

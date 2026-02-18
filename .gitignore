@@ -5,3 +5,4 @@ screenshots/
 prompt_result.json
 .DS_Store
 .claude/
+recorded_flow.py

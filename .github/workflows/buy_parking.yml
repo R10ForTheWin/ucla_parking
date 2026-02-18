@@ -15,6 +15,10 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: buy-parking
+  cancel-in-progress: false
+
 jobs:
   buy-parking:
     runs-on: ubuntu-latest
@@ -51,11 +55,12 @@ jobs:
           is_manual = '${{ github.event_name }}' == 'workflow_dispatch'
           is_class_day = today in config.PARKING_DATES
 
-          # Deduplicate: during PST the 12:00 UTC cron fires at 5 AM PDT, skip it
-          # During PDT the 13:00 UTC cron fires at 6 AM PST, skip it
-          # Accept hours 5-6 (cron target range), reject anything else
-          if not is_manual and (current_hour < 5 or current_hour > 6):
-              print(f'Dedup: current hour is {current_hour}, expected 5-6. Skipping this cron trigger.')
+          # Deduplicate: two cron triggers cover PST and PDT.
+          # Only proceed if we're within 90 min of the 6 AM target (handles DST edge cases).
+          target = now.replace(hour=6, minute=0, second=0, microsecond=0)
+          minutes_to_target = abs((target - now).total_seconds()) / 60
+          if not is_manual and minutes_to_target > 90:
+              print(f'Dedup: {minutes_to_target:.0f} min from 6 AM target. Skipping this cron trigger.')
               is_class_day = False
 
           print(f'Today (PT): {today}, hour: {current_hour}, class day: {is_class_day}, manual: {is_manual}')
