@@ -125,6 +125,7 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
 
     # ── Step 1: Navigate to portal ──
     print("Navigating to ePermit portal...")
+    bot.send_message(chat_id, "Opening the UCLA parking site...")
     page.goto("https://bruinepermit.t2hosted.com/Account/Portal",
               timeout=config.PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
     _wait_for_queue_it(page)
@@ -141,6 +142,7 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
 
     # ── Step 3: UCLA SSO login ──
     print("Logging in with UCLA credentials...")
+    bot.send_message(chat_id, "Logging in with your UCLA credentials...")
     page.get_by_placeholder("Your UCLA Logon ID").fill(username)
     page.get_by_placeholder("Your UCLA Logon ID").press("Tab")
     page.get_by_placeholder("Your UCLA Logon Password").fill(password)
@@ -148,6 +150,7 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
 
     # ── Step 4: DUO 2FA via passcode ──
     _handle_duo_passcode(page, chat_id)
+    bot.send_message(chat_id, "DUO verified! Navigating to permits...")
 
     # ── Step 5: Handle orphaned cart if present ──
     # Page title: "Previous Basket Load" — shows a table of old baskets.
@@ -188,6 +191,7 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
             page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
 
     print("Selecting permit...")
+    bot.send_message(chat_id, "Selecting your permit...")
     page.wait_for_url("**/per/index.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
     page.get_by_role("button", name="Next >>").click()
 
@@ -295,6 +299,7 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
         return "DRY RUN complete"
 
     print("Confirming purchase...")
+    bot.send_message(chat_id, "Processing transaction...")
     page.get_by_role("button", name="Process Transaction").click()
 
     # Verify purchase succeeded
