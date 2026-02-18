@@ -19,7 +19,7 @@ TELEGRAM_POLL_INTERVAL = 5     # Poll every 5 seconds
 PAGE_LOAD_TIMEOUT = 60000      # Playwright page timeout (ms)
 
 # Retry
-MAX_RETRIES = 2
+MAX_RETRIES = 3
 
 # Parking structures (option values from the Parking Area dropdown)
 STRUCTURE_4 = "2127"     # Structure 4 (default)

@@ -12,6 +12,14 @@ from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
 import bot
 import config
 
+# Retry delay (seconds) when Bruin Bill payment system is temporarily down
+BRUIN_BILL_RETRY_DELAY = 120  # wait 2 min before retrying
+
+
+class BruinBillUnavailable(Exception):
+    """Raised when Bruin Bill payment system is temporarily down."""
+    pass
+
 
 def _ensure_screenshot_dir():
     os.makedirs(config.SCREENSHOT_DIR, exist_ok=True)
@@ -120,6 +128,11 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
     page.goto("https://bruinepermit.t2hosted.com/Account/Portal",
               timeout=config.PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
     _wait_for_queue_it(page)
+
+    # ── Check for Bruin Bill outage ──
+    body_text = page.inner_text("body")
+    if "bruin bill is not currently available" in body_text.lower():
+        raise BruinBillUnavailable("Bruin Bill payment system is temporarily down")
 
     # ── Step 2: Start permit flow ──
     print("Clicking 'Get Permits'...")
@@ -313,11 +326,19 @@ def run(username, password, plate, structure, chat_id, headless=True, dry_run=Fa
                 _screenshot(page, "success")
                 print("Purchase completed successfully!")
                 return result
+            except BruinBillUnavailable as e:
+                last_error = e
+                print(f"Bruin Bill down (attempt {attempt}): {e}")
+                _screenshot(page, f"bruin_bill_down_attempt{attempt}")
+                if attempt < config.MAX_RETRIES:
+                    bot.send_message(chat_id, f"Bruin Bill payment system is temporarily down. Retrying in {BRUIN_BILL_RETRY_DELAY // 60} min...")
+                    time.sleep(BRUIN_BILL_RETRY_DELAY)
+                else:
+                    bot.send_message(chat_id, "Bruin Bill payment system is still down after all retries. You may need to purchase manually.")
             except Exception as e:
                 last_error = e
                 print(f"Purchase failed (attempt {attempt}): {e}")
                 error_path = _screenshot(page, f"error_attempt{attempt}")
-                # Send error screenshot to user
                 try:
                     bot.send_photo(chat_id, error_path, caption=f"Error on attempt {attempt}: {e}")
                 except Exception:
