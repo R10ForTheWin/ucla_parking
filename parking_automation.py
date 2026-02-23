@@ -32,12 +32,17 @@ def _screenshot(page, name):
 
 
 def _wait_for_queue_it(page, cb):
-    if "queue-it" not in page.url.lower() and "queue.t2hosted" not in page.url.lower():
+    in_queue = (
+        "queue-it" in page.url.lower()
+        or "queue.t2hosted" in page.url.lower()
+        or "permitlobby.t2hosted" in page.url.lower()
+    )
+    if not in_queue:
         return
 
     try:
         body = page.inner_text("body").lower()
-        if "enter the code" in body or "i'm not a robot" in body or "captcha" in body:
+        if "enter the code" in body or "i'm not a robot" in body or "captcha" in body or "softblock" in page.url.lower():
             raise Exception(
                 "Queue-it is showing a CAPTCHA — the parking site is under heavy load. "
                 "Purchase manually: https://bruinepermit.t2hosted.com"
@@ -280,8 +285,23 @@ def run_purchase(username, password, structure, callback, duo_provider, dry_run=
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--disable-gpu", "--no-sandbox"])
 
-            context = browser.new_context()
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/121.0.0.0 Safari/537.36"
+                ),
+                locale="en-US",
+            )
             page = context.new_page()
+            page.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+            try:
+                from playwright_stealth import stealth_sync
+                stealth_sync(page)
+            except Exception:
+                pass
             page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
 
             # Block images and media to speed up page loads
