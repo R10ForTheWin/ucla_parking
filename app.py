@@ -113,6 +113,7 @@ def api_buy():
     if not all([username, password, structure]):
         return jsonify({"error": "Missing required fields"}), 400
     if structure not in (config.STRUCTURE_4, config.STRUCTURE_P7):
+        return jsonify({"error": "Invalid parking structure"}), 400
 
     jid = _create_job()
 
