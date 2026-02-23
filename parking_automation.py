@@ -116,17 +116,34 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=
     page.goto(
         "https://bruinepermit.t2hosted.com/Account/Portal",
         timeout=config.PAGE_LOAD_TIMEOUT,
-        wait_until="domcontentloaded",
+        wait_until="networkidle",
     )
     _wait_for_queue_it(page, cb)
 
     body_text = page.inner_text("body")
+    print(f"[JUSTIN] Page URL: {page.url}", flush=True)
+    print(f"[JUSTIN] Page title: {page.title()}", flush=True)
+    print(f"[JUSTIN] Body snippet: {body_text[:300]}", flush=True)
+
     if "bruin bill is not currently available" in body_text.lower():
         raise BruinBillUnavailable("Bruin Bill payment system is temporarily down.")
 
-    # Step 2: Start permit flow
+    # Step 2: Start permit flow — try several button name variants
     cb("Starting permit flow...")
-    page.get_by_role("button", name=re.compile(r"Get Permits", re.IGNORECASE)).click()
+    clicked = False
+    for btn_text in ["Get Permits", "Buy Permits", "Purchase Permits", "Permits"]:
+        try:
+            page.get_by_role("button", name=re.compile(btn_text, re.IGNORECASE)).click(timeout=5000)
+            clicked = True
+            break
+        except Exception:
+            pass
+    if not clicked:
+        # Fallback: any link or button containing "permit"
+        page.locator("a, button").filter(
+            has_text=re.compile(r"permit", re.IGNORECASE)
+        ).first.click(timeout=10000)
+
     page.get_by_role("button", name="UCLA Logon").click()
 
     # Step 3: UCLA SSO login
