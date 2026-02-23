@@ -10,8 +10,8 @@ DUO_WAIT_TIMEOUT = 120        # How long to wait for DUO 2FA approval
 QUEUE_IT_TIMEOUT = 300         # How long to wait in Queue-it waiting room
 PAGE_LOAD_TIMEOUT = 60000      # Playwright page timeout (ms)
 
-# Retry
-MAX_RETRIES = 3
+# Retry — keep low to avoid hammering the site and worsening IP reputation
+MAX_RETRIES = 1
 
 # Parking structures (option values from the Parking Area dropdown)
 STRUCTURE_4 = "2127"     # Structure 4 (default)
