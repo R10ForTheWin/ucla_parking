@@ -159,6 +159,8 @@ def api_buy():
                         result={"dry_run": False, "detail": result})
 
         except Exception as e:
+            import traceback
+            print(f"[JUSTIN ERROR] {traceback.format_exc()}", flush=True)
             _update(jid, status="error", message=_safe_error(e))
         finally:
             _browser_lock.release()

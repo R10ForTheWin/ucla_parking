@@ -267,9 +267,9 @@ def run_purchase(username, password, structure, callback, duo_provider, dry_run=
             page = context.new_page()
             page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
 
-            # Block images, fonts, and media to speed up page loads
+            # Block images and media to speed up page loads
             page.route("**/*", lambda route: route.abort()
-                if route.request.resource_type in ("image", "media", "font", "stylesheet")
+                if route.request.resource_type in ("image", "media", "font")
                 else route.continue_())
 
             try:
