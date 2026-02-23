@@ -282,16 +282,6 @@
         <input type="password" id="s-password" placeholder="Your password"
                autocomplete="current-password">
       </div>
-      <div class="form-group">
-        <label>License Plate</label>
-        <input type="text" id="s-plate1" placeholder="e.g. 9VSK311"
-               autocomplete="off" autocapitalize="characters" spellcheck="false">
-      </div>
-      <div class="form-group">
-        <label>Second Plate <span class="label-note">(optional)</span></label>
-        <input type="text" id="s-plate2" placeholder="e.g. ABC1234"
-               autocomplete="off" autocapitalize="characters" spellcheck="false">
-      </div>
       <div class="form-group" style="margin-bottom:0">
         <label>Default Parking Structure</label>
         <div class="toggle-row">
@@ -324,7 +314,7 @@
       <div class="avatar" id="home-avatar">?</div>
       <div class="profile-info">
         <div class="profile-name" id="home-username">—</div>
-        <div class="profile-sub"  id="home-plates">—</div>
+        <div class="profile-sub">Vehicle on file at UCLA</div>
       </div>
       <button class="edit-link" onclick="openSetup()">Edit</button>
     </div>
@@ -350,11 +340,6 @@
       <div class="confirm-label">Permit</div>
       <div class="confirm-value">Yellow / 1-Day Student</div>
       <div class="confirm-sub">Valid today only</div>
-      <div class="divider"></div>
-
-      <div class="confirm-label" style="margin-bottom:10px">License Plate</div>
-      <div id="plate-options"></div>
-
       <div class="divider"></div>
 
       <div class="confirm-label" style="margin-bottom:10px">Parking Structure</div>
@@ -456,7 +441,6 @@ const PARKING_DATES = new Set([
 
 // ── State ──────────────────────────────────────────────────────────────────
 let currentJobId      = null;
-let selectedPlate     = null;
 let selectedStructure = STRUCTURE_4;
 
 // ── Screen nav ─────────────────────────────────────────────────────────────
@@ -471,17 +455,13 @@ function getProfile() {
   return {
     username:  localStorage.getItem('justin_username')  || '',
     password:  localStorage.getItem('justin_password')  || '',
-    plate1:    localStorage.getItem('justin_plate1')    || '',
-    plate2:    localStorage.getItem('justin_plate2')    || '',
     structure: localStorage.getItem('justin_structure') || 'p4',
   };
 }
 
-function storeProfile(username, password, plate1, plate2, structure) {
+function storeProfile(username, password, structure) {
   localStorage.setItem('justin_username',  username);
   localStorage.setItem('justin_password',  password);
-  localStorage.setItem('justin_plate1',    plate1);
-  localStorage.setItem('justin_plate2',    plate2);
   localStorage.setItem('justin_structure', structure);
 }
 
@@ -504,8 +484,6 @@ function openSetup() {
   const p = getProfile();
   document.getElementById('s-username').value = p.username;
   document.getElementById('s-password').value = p.password;
-  document.getElementById('s-plate1').value   = p.plate1;
-  document.getElementById('s-plate2').value   = p.plate2;
   setupStructure = p.structure || 'p4';
   selectSetupStructure(setupStructure);
   document.getElementById('setup-err').style.display = 'none';
@@ -515,8 +493,6 @@ function openSetup() {
 function saveSetup() {
   const username = document.getElementById('s-username').value.trim();
   const password = document.getElementById('s-password').value;
-  const plate1   = document.getElementById('s-plate1').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
-  const plate2   = document.getElementById('s-plate2').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
   const errEl    = document.getElementById('setup-err');
 
   if (!username || !password) {
@@ -524,13 +500,8 @@ function saveSetup() {
     errEl.style.display = 'block';
     return;
   }
-  if (!plate1) {
-    errEl.textContent = 'License plate is required.';
-    errEl.style.display = 'block';
-    return;
-  }
   errEl.style.display = 'none';
-  storeProfile(username, password, plate1, plate2, setupStructure);
+  storeProfile(username, password, setupStructure);
   loadHome();
   show('home');
 }
@@ -540,8 +511,6 @@ function loadHome() {
   const p = getProfile();
   document.getElementById('home-avatar').textContent  = p.username ? p.username[0].toUpperCase() : '?';
   document.getElementById('home-username').textContent = p.username || 'Not configured';
-  const plates = [p.plate1, p.plate2].filter(Boolean);
-  document.getElementById('home-plates').textContent   = plates.join(' · ') || 'No plates saved';
 
   // Check if today is a class day (Pacific time)
   const now    = new Date();
@@ -582,31 +551,11 @@ function startBuy() {
   const p = getProfile();
   if (!p.username || !p.password) { openSetup(); return; }
 
-  // Build plate options
-  const plates = [p.plate1, p.plate2].filter(Boolean);
-  selectedPlate = plates[0];
-
-  const el = document.getElementById('plate-options');
-  if (plates.length === 1) {
-    el.innerHTML = `<div class="plate-btn selected">${esc(plates[0])}</div>`;
-  } else {
-    el.innerHTML = plates.map((pl, i) =>
-      `<button class="plate-btn ${i === 0 ? 'selected' : ''}" onclick="selectPlate('${esc(pl)}')">${esc(pl)}</button>`
-    ).join('');
-  }
-
   // Set structure default
   selectedStructure = p.structure === 'p7' ? STRUCTURE_P7 : STRUCTURE_4;
   selectConfirmStructure(p.structure || 'p4');
 
   show('confirm');
-}
-
-function selectPlate(plate) {
-  selectedPlate = plate;
-  document.querySelectorAll('.plate-btn').forEach(btn => {
-    btn.classList.toggle('selected', btn.textContent === plate);
-  });
 }
 
 function selectConfirmStructure(val) {
@@ -618,7 +567,6 @@ function selectConfirmStructure(val) {
 // ── Buy flow ───────────────────────────────────────────────────────────────
 async function doRegister() {
   const p = getProfile();
-  if (!selectedPlate) return;
 
   document.getElementById('loading-msg').textContent = 'Starting purchase...';
   document.getElementById('loading-note').style.display = 'block';
@@ -631,7 +579,6 @@ async function doRegister() {
       body:    JSON.stringify({
         username:  p.username,
         password:  p.password,
-        plate:     selectedPlate,
         structure: selectedStructure,
         dry_run:   document.getElementById('dry-run-toggle').checked,
       }),
@@ -759,7 +706,7 @@ if ('serviceWorker' in navigator) {
 // ── Init ───────────────────────────────────────────────────────────────────
 (function init() {
   const p = getProfile();
-  if (p.username && p.password && p.plate1) {
+  if (p.username && p.password) {
     loadHome();
     show('home');
   } else {

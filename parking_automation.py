@@ -110,7 +110,7 @@ def _verify_purchase_success(page):
         return None
 
 
-def _do_purchase(page, username, password, plate, structure, cb, duo_provider, dry_run=False):
+def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=False):
     # Step 1: Navigate
     cb("Opening the UCLA parking site...")
     page.goto(
@@ -183,9 +183,18 @@ def _do_purchase(page, username, password, plate, structure, cb, duo_provider, d
     page.get_by_role("checkbox", name="I agree to the University").check()
     page.get_by_role("button", name="Next >>").click()
 
-    # Step 7: Select vehicle
-    cb(f"Selecting vehicle ({plate})...")
-    page.get_by_role("checkbox", name=plate).check()
+    # Step 7: Select vehicle (auto-select all vehicles on the account)
+    cb("Selecting vehicle...")
+    checkboxes = page.get_by_role("checkbox").all()
+    checked = 0
+    for cb_el in checkboxes:
+        try:
+            cb_el.check()
+            checked += 1
+        except Exception:
+            pass
+    if checked == 0:
+        raise Exception("No vehicles found on your UCLA account — add a vehicle at bruinepermit.t2hosted.com first.")
     page.get_by_role("button", name="Next >>").click()
 
     # Step 8: Select parking structure
@@ -236,7 +245,7 @@ def _do_purchase(page, username, password, plate, structure, cb, duo_provider, d
     raise Exception("No purchase confirmation found on page — check manually: https://bruinepermit.t2hosted.com")
 
 
-def run_purchase(username, password, plate, structure, callback, duo_provider, dry_run=False):
+def run_purchase(username, password, structure, callback, duo_provider, dry_run=False):
     """Run the full purchase flow for one user, with retries."""
     def cb(msg):
         if callback:
@@ -256,7 +265,7 @@ def run_purchase(username, password, plate, structure, callback, duo_provider, d
 
             try:
                 result = _do_purchase(
-                    page, username, password, plate, structure,
+                    page, username, password, structure,
                     cb, duo_provider, dry_run=dry_run,
                 )
                 _screenshot(page, "success")

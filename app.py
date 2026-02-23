@@ -107,16 +107,12 @@ def api_buy():
     data      = request.json or {}
     username  = data.get("username",  "").strip()
     password  = data.get("password",  "").strip()
-    plate     = data.get("plate",     "").strip().upper()
     structure = data.get("structure", "").strip()
     dry_run   = bool(data.get("dry_run", False))
 
-    if not all([username, password, plate, structure]):
+    if not all([username, password, structure]):
         return jsonify({"error": "Missing required fields"}), 400
     if structure not in (config.STRUCTURE_4, config.STRUCTURE_P7):
-        return jsonify({"error": "Invalid parking structure"}), 400
-    if not _re.match(r'^[A-Z0-9]{1,10}$', plate):
-        return jsonify({"error": "Invalid plate format"}), 400
 
     jid = _create_job()
 
@@ -146,7 +142,7 @@ def api_buy():
                 return code
 
             result = run_purchase(
-                username, password, plate, structure,
+                username, password, structure,
                 callback=lambda m: _update(jid, message=m),
                 duo_provider=duo_provider,
                 dry_run=dry_run,
