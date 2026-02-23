@@ -31,6 +31,33 @@ def _screenshot(page, name):
     return path
 
 
+def _is_captcha_active(page):
+    """Return True only if a real CAPTCHA challenge is actually on screen."""
+    try:
+        # Hard block: "softblock" in URL
+        if "softblock" in page.url.lower():
+            return True
+        # Check for recaptcha iframe (strongest signal)
+        if page.locator("iframe[src*='recaptcha'], iframe[src*='hcaptcha']").count() > 0:
+            return True
+        # Check for Queue-it bot-check input
+        if page.locator("input[id*='captcha'], input[name*='captcha']").count() > 0:
+            return True
+        # Text signals only as a last resort
+        body = page.inner_text("body").lower()
+        CAPTCHA_PHRASES = [
+            "i'm not a robot",
+            "verify you are human",
+            "enter the characters",
+            "enter the code below",
+        ]
+        if any(p in body for p in CAPTCHA_PHRASES):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _wait_for_queue_it(page, cb):
     in_queue = (
         "queue-it" in page.url.lower()
@@ -40,30 +67,29 @@ def _wait_for_queue_it(page, cb):
     if not in_queue:
         return
 
+    # Log where we landed for debugging
+    print(f"[JUSTIN] Queue-it detected. URL: {page.url}", flush=True)
     try:
-        body = page.inner_text("body").lower()
-        if "enter the code" in body or "i'm not a robot" in body or "captcha" in body or "softblock" in page.url.lower():
-            raise Exception(
-                "Queue-it is showing a CAPTCHA — the parking site is under heavy load. "
-                "Purchase manually: https://bruinepermit.t2hosted.com"
-            )
-    except Exception as e:
-        if "manually" in str(e):
-            raise
+        body_snippet = page.inner_text("body")[:400]
+        print(f"[JUSTIN] Queue-it body: {body_snippet}", flush=True)
+    except Exception:
+        pass
+
+    if _is_captcha_active(page):
+        raise Exception(
+            "Queue-it is showing a CAPTCHA — the parking site is under heavy load. "
+            "Purchase manually: https://bruinepermit.t2hosted.com"
+        )
 
     cb("In the parking site queue — please wait, this may take a few minutes...")
     deadline = time.time() + config.QUEUE_IT_TIMEOUT
     while time.time() < deadline:
-        if "queue-it" not in page.url.lower() and "queue.t2hosted" not in page.url.lower():
+        url = page.url.lower()
+        if "queue-it" not in url and "queue.t2hosted" not in url and "permitlobby.t2hosted" not in url:
             cb("Through the queue!")
             return
-        try:
-            body = page.inner_text("body").lower()
-            if "enter the code" in body or "captcha" in body:
-                raise Exception("CAPTCHA detected — purchase manually: https://bruinepermit.t2hosted.com")
-        except Exception as e:
-            if "manually" in str(e):
-                raise
+        if _is_captcha_active(page):
+            raise Exception("CAPTCHA detected — purchase manually: https://bruinepermit.t2hosted.com")
         time.sleep(5)
     raise TimeoutError("Stuck in Queue-it waiting room — try again in a moment.")
 
@@ -121,7 +147,7 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=
     page.goto(
         "https://bruinepermit.t2hosted.com/Account/Portal",
         timeout=config.PAGE_LOAD_TIMEOUT,
-        wait_until="networkidle",
+        wait_until="domcontentloaded",
     )
     _wait_for_queue_it(page, cb)
 
@@ -305,8 +331,9 @@ def run_purchase(username, password, structure, callback, duo_provider, dry_run=
             page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
 
             # Block images and media to speed up page loads
+            # NOTE: fonts are NOT blocked — some bot-detection checks for font loading
             page.route("**/*", lambda route: route.abort()
-                if route.request.resource_type in ("image", "media", "font")
+                if route.request.resource_type in ("image", "media")
                 else route.continue_())
 
             try:
