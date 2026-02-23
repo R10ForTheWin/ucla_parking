@@ -368,7 +368,6 @@
     </div>
     <div class="status-text" id="loading-msg">Starting...</div>
     <p class="note" id="loading-note" style="margin-top:18px">This usually takes 1–2 minutes.<br>Keep the app open.</p>
-    <p class="note" style="margin-top:10px;font-size:12px">Tip: it runs faster after your first login.</p>
   </div>
 </div>
 
@@ -491,9 +490,8 @@ function loadHome() {
   document.getElementById('home-username').textContent = p.username || 'Not configured';
 
   // Check if today is a class day (Pacific time)
-  const now    = new Date();
-  const pst    = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
-  const today  = pst.toISOString().slice(0, 10);
+  // en-CA locale gives YYYY-MM-DD format directly in the specified timezone
+  const today  = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
   const badge  = document.getElementById('day-badge');
   const detail = document.getElementById('day-detail');
 
@@ -589,6 +587,7 @@ async function pollJob(jobId) {
           document.getElementById('duo-code').value = '';
           document.getElementById('duo-err').style.display = 'none';
           show('duo');
+          setTimeout(() => document.getElementById('duo-code').focus(), 300);
         }
         continue; // keep polling so we catch when it resumes
       }

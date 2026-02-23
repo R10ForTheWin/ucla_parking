@@ -1,0 +1,14 @@
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.gif
+.env
+.env.*
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.git
+.gitignore
+*.md
