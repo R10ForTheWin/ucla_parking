@@ -1,0 +1,284 @@
+"""
+Justin EMBAlake – Playwright automation, decoupled from Telegram.
+Called by app.py in background threads.
+"""
+
+import os
+import re
+import time
+from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
+
+import config
+
+BRUIN_BILL_RETRY_DELAY = 120  # seconds to wait when Bruin Bill is down
+
+
+class BruinBillUnavailable(Exception):
+    pass
+
+
+def _ensure_screenshot_dir():
+    os.makedirs(config.SCREENSHOT_DIR, exist_ok=True)
+
+
+def _screenshot(page, name):
+    _ensure_screenshot_dir()
+    path = os.path.join(config.SCREENSHOT_DIR, f"{name}.png")
+    try:
+        page.screenshot(path=path, full_page=True)
+    except Exception:
+        pass
+    return path
+
+
+def _wait_for_queue_it(page, cb):
+    if "queue-it" not in page.url.lower() and "queue.t2hosted" not in page.url.lower():
+        return
+
+    try:
+        body = page.inner_text("body").lower()
+        if "enter the code" in body or "i'm not a robot" in body or "captcha" in body:
+            raise Exception(
+                "Queue-it is showing a CAPTCHA — the parking site is under heavy load. "
+                "Purchase manually: https://bruinepermit.t2hosted.com"
+            )
+    except Exception as e:
+        if "manually" in str(e):
+            raise
+
+    cb("In the parking site queue — please wait, this may take a few minutes...")
+    deadline = time.time() + config.QUEUE_IT_TIMEOUT
+    while time.time() < deadline:
+        if "queue-it" not in page.url.lower() and "queue.t2hosted" not in page.url.lower():
+            cb("Through the queue!")
+            return
+        try:
+            body = page.inner_text("body").lower()
+            if "enter the code" in body or "captcha" in body:
+                raise Exception("CAPTCHA detected — purchase manually: https://bruinepermit.t2hosted.com")
+        except Exception as e:
+            if "manually" in str(e):
+                raise
+        time.sleep(5)
+    raise TimeoutError("Stuck in Queue-it waiting room — try again in a moment.")
+
+
+def _handle_duo_passcode(page, duo_provider, cb):
+    """Pause automation, ask web UI for DUO passcode, then continue."""
+    cb("DUO authentication required...")
+    page.get_by_role("button", name="Send a passcode").click()
+
+    # duo_provider() blocks until the user submits their code via the web UI
+    code = duo_provider()
+    if not code:
+        raise TimeoutError("DUO passcode not received — timed out after 2 minutes.")
+
+    page.get_by_role("textbox", name="Passcode").fill(code)
+    page.get_by_role("textbox", name="Passcode").press("Enter")
+    page.wait_for_url("**/bruinepermit.t2hosted.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
+    cb("DUO verified!")
+
+
+def _find_permit_radio(page):
+    radio = page.get_by_role("radio", name="Yellow / 1-Day Student")
+    if radio.count() > 0:
+        return radio
+    for pattern in ["1-Day Student", "1-Day", "Yellow"]:
+        radio = page.get_by_role("radio", name=re.compile(pattern, re.IGNORECASE))
+        if radio.count() > 0:
+            return radio
+    all_radios = page.get_by_role("radio").all()
+    names = [r.get_attribute("aria-label") or r.inner_text() for r in all_radios]
+    raise Exception(f"Could not find 1-Day Student permit. Available: {names}")
+
+
+def _verify_purchase_success(page):
+    try:
+        page.wait_for_load_state("networkidle", timeout=config.PAGE_LOAD_TIMEOUT)
+        body = page.inner_text("body")
+        for pattern in ["confirmation", "receipt", "transaction complete", "successfully"]:
+            if pattern.lower() in body.lower():
+                match = re.search(
+                    r'(?:confirmation|receipt|transaction)\s*(?:#|number|no)?[:\s]*(\w+)',
+                    body, re.IGNORECASE
+                )
+                if match:
+                    return f"Confirmation #{match.group(1)}"
+                return "Purchase confirmed"
+        return None
+    except Exception:
+        return None
+
+
+def _do_purchase(page, username, password, plate, structure, cb, duo_provider, dry_run=False):
+    # Step 1: Navigate
+    cb("Opening the UCLA parking site...")
+    page.goto(
+        "https://bruinepermit.t2hosted.com/Account/Portal",
+        timeout=config.PAGE_LOAD_TIMEOUT,
+        wait_until="domcontentloaded",
+    )
+    _wait_for_queue_it(page, cb)
+
+    body_text = page.inner_text("body")
+    if "bruin bill is not currently available" in body_text.lower():
+        raise BruinBillUnavailable("Bruin Bill payment system is temporarily down.")
+
+    # Step 2: Start permit flow
+    cb("Starting permit flow...")
+    page.get_by_role("button", name=re.compile(r"Get Permits", re.IGNORECASE)).click()
+    page.get_by_role("button", name="UCLA Logon").click()
+
+    # Step 3: UCLA SSO login
+    cb("Logging in with your UCLA credentials...")
+    page.get_by_placeholder("Your UCLA Logon ID").fill(username)
+    page.get_by_placeholder("Your UCLA Logon ID").press("Tab")
+    page.get_by_placeholder("Your UCLA Logon Password").fill(password)
+    page.get_by_role("button", name="Sign In").click()
+
+    # Step 4: DUO 2FA
+    _handle_duo_passcode(page, duo_provider, cb)
+    cb("Navigating to permits...")
+
+    # Step 5: Handle orphaned cart if present
+    try:
+        body = page.inner_text("body")
+        if ("orphan" in page.url.lower() or "basket" in page.url.lower()
+                or "Previous Basket" in body):
+            cb("Clearing previous cart...")
+            empty_clicked = False
+            rows = page.locator("table tr").all()
+            for row in rows:
+                if "$0.00" in row.inner_text():
+                    link = row.get_by_role("link", name=re.compile(r"select", re.IGNORECASE))
+                    if link.count() > 0:
+                        link.first.click()
+                        empty_clicked = True
+                        break
+            if not empty_clicked:
+                links = page.get_by_role("link", name=re.compile(r"select", re.IGNORECASE))
+                if links.count() > 0:
+                    links.last.click()
+                    empty_clicked = True
+            if not empty_clicked:
+                page.goto(
+                    "https://bruinepermit.t2hosted.com/per/index.aspx",
+                    timeout=config.PAGE_LOAD_TIMEOUT,
+                    wait_until="domcontentloaded",
+                )
+            else:
+                page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+    except Exception:
+        pass
+
+    # Step 6: Select permit type
+    cb("Selecting permit...")
+    page.wait_for_url("**/per/index.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
+    page.get_by_role("button", name="Next >>").click()
+    page.wait_for_url("**/per/selectpermit.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
+
+    permit_radio = _find_permit_radio(page)
+    permit_radio.check()
+    page.get_by_role("checkbox", name="I agree to abide by my").check()
+    page.get_by_role("checkbox", name="I agree to the University").check()
+    page.get_by_role("button", name="Next >>").click()
+
+    # Step 7: Select vehicle
+    cb(f"Selecting vehicle ({plate})...")
+    page.get_by_role("checkbox", name=plate).check()
+    page.get_by_role("button", name="Next >>").click()
+
+    # Step 8: Select parking structure
+    cb("Selecting parking structure...")
+    dropdown = page.get_by_label("Parking Area")
+    available_options = dropdown.evaluate(
+        "el => Array.from(el.options).map(o => ({value: o.value, text: o.text, disabled: o.disabled}))"
+    )
+
+    selected_available = any(
+        o["value"] == structure and not o.get("disabled", False)
+        for o in available_options
+    )
+
+    if not selected_available:
+        if structure == config.STRUCTURE_4:
+            alt_structure, sold_out_name, alt_name = config.STRUCTURE_P7, "P4", "P7"
+        else:
+            alt_structure, sold_out_name, alt_name = config.STRUCTURE_4, "P7", "P4"
+
+        alt_available = any(
+            o["value"] == alt_structure and not o.get("disabled", False)
+            for o in available_options
+        )
+
+        if alt_available:
+            cb(f"{sold_out_name} is sold out — automatically switching to {alt_name}...")
+            structure = alt_structure
+        else:
+            raise Exception("Both P4 and P7 are sold out — parking is not available today.")
+
+    dropdown.select_option(structure)
+    page.get_by_role("button", name="Next >>").click()
+
+    _screenshot(page, "pre_purchase")
+
+    if dry_run:
+        cb("Dry run complete — stopping before Process Transaction.")
+        return "dry_run"
+
+    # Step 9: Process transaction
+    cb("Processing transaction...")
+    page.get_by_role("button", name="Process Transaction").click()
+
+    result = _verify_purchase_success(page)
+    if result:
+        return result
+    raise Exception("No purchase confirmation found on page — check manually: https://bruinepermit.t2hosted.com")
+
+
+def run_purchase(username, password, plate, structure, callback, duo_provider, dry_run=False):
+    """Run the full purchase flow for one user, with retries."""
+    def cb(msg):
+        if callback:
+            callback(msg)
+
+    last_error = None
+
+    for attempt in range(1, config.MAX_RETRIES + 1):
+        if attempt > 1:
+            cb(f"Retrying... (attempt {attempt}/{config.MAX_RETRIES})")
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context()
+            page = context.new_page()
+            page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
+
+            try:
+                result = _do_purchase(
+                    page, username, password, plate, structure,
+                    cb, duo_provider, dry_run=dry_run,
+                )
+                _screenshot(page, "success")
+                return result
+
+            except BruinBillUnavailable as e:
+                last_error = e
+                _screenshot(page, f"bruin_bill_down_{attempt}")
+                if attempt < config.MAX_RETRIES:
+                    cb(
+                        "UCLA payment system (Bruin Bill) is temporarily down. "
+                        f"Retrying in {BRUIN_BILL_RETRY_DELAY // 60} minutes..."
+                    )
+                    time.sleep(BRUIN_BILL_RETRY_DELAY)
+
+            except Exception as e:
+                last_error = e
+                _screenshot(page, f"error_attempt{attempt}")
+                if attempt < config.MAX_RETRIES:
+                    cb(f"Hit an issue (attempt {attempt}/{config.MAX_RETRIES}) — retrying...")
+
+            finally:
+                browser.close()
+
+    raise Exception(str(last_error) or "Purchase failed after all retry attempts.")

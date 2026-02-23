@@ -1,0 +1,14 @@
+{
+  "name": "Justin EMBAlake",
+  "short_name": "Justin",
+  "description": "UCLA EMBA Parking Agent",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#003B5C",
+  "theme_color": "#2774AE",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

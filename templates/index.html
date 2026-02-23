@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Justin">
+  <meta name="theme-color" content="#2774AE">
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <title>Justin EMBAlake</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:       #2774AE;
+      --blue-dark:  #003B5C;
+      --blue-mid:   #005587;
+      --gold:       #FFD100;
+      --gold-dark:  #D6A000;
+      --bg:         #F5F8FF;
+      --card:       #ffffff;
+      --text:       #1a1a2e;
+      --muted:      #6c757d;
+      --success:    #2DC653;
+      --error:      #E63946;
+      --radius:     16px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      min-height: -webkit-fill-available;
+      overflow-x: hidden;
+    }
+
+    .screen { display: none; min-height: 100vh; flex-direction: column; }
+    .screen.active { display: flex; }
+
+    .header {
+      background: linear-gradient(160deg, var(--blue-dark) 0%, var(--blue) 100%);
+      color: white;
+      padding: max(60px, env(safe-area-inset-top, 60px)) 24px 32px;
+      text-align: center;
+    }
+    .header h1   { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+    .header p    { opacity: 0.8; margin-top: 4px; font-size: 15px; }
+    .header-sm   { padding: max(52px, env(safe-area-inset-top, 52px)) 24px 20px; }
+
+    .content {
+      flex: 1;
+      padding: 24px 20px max(28px, env(safe-area-inset-bottom, 28px));
+      max-width: 480px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+    }
+
+    .form-group { margin-bottom: 18px; }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 7px;
+    }
+    .label-note { font-weight: 400; text-transform: none; letter-spacing: 0; }
+    input[type="text"], input[type="password"], input[type="email"], input[type="number"] {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      font-size: 16px;
+      font-family: inherit;
+      color: var(--text);
+      background: #fff;
+      transition: border-color 0.2s;
+      -webkit-appearance: none;
+    }
+    input:focus { outline: none; border-color: var(--blue); }
+
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 16px;
+      border: none;
+      border-radius: 14px;
+      font-size: 17px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: center;
+      transition: opacity 0.15s, transform 0.1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active     { transform: scale(0.97); opacity: 0.9; }
+    .btn + .btn     { margin-top: 12px; }
+    .btn-primary    { background: var(--blue);    color: white; }
+    .btn-gold       { background: var(--gold);    color: var(--blue-dark); }
+    .btn-success    { background: var(--success); color: white; }
+    .btn-outline    { background: transparent; color: var(--blue); border: 2px solid var(--blue); }
+    .btn-lg         { font-size: 19px; padding: 20px; }
+
+    /* Profile badge */
+    .profile-badge {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 18px;
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+      margin-bottom: 24px;
+    }
+    .avatar {
+      width: 46px; height: 46px;
+      border-radius: 50%;
+      background: var(--blue);
+      color: white;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 20px;
+      flex-shrink: 0;
+    }
+    .profile-info   { flex: 1; min-width: 0; }
+    .profile-name   { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .profile-sub    { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .edit-link      { color: var(--blue); font-size: 14px; font-weight: 600; background: none; border: none; cursor: pointer; padding: 4px; flex-shrink: 0; }
+
+    /* Structure / Plate selectors */
+    .toggle-row { display: flex; gap: 10px; margin-bottom: 18px; }
+    .toggle-btn {
+      flex: 1;
+      padding: 14px;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      background: white;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+      transition: border-color 0.15s, background 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      font-family: inherit;
+    }
+    .toggle-btn.selected { border-color: var(--blue); background: #EBF5FF; color: var(--blue); }
+
+    .plate-btn {
+      display: block;
+      width: 100%;
+      padding: 14px 18px;
+      margin-bottom: 10px;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      background: white;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      cursor: pointer;
+      text-align: center;
+      font-family: inherit;
+      transition: border-color 0.15s, background 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .plate-btn.selected { border-color: var(--blue); background: #EBF5FF; color: var(--blue); }
+
+    /* Confirm details */
+    .confirm-label { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+    .confirm-value { font-size: 17px; font-weight: 600; }
+    .confirm-sub   { font-size: 14px; color: var(--muted); margin-top: 2px; }
+    .divider       { height: 1px; background: #eee; margin: 16px 0; }
+    .price-row     { display: flex; justify-content: space-between; align-items: center; }
+    .price-tag     { font-size: 22px; font-weight: 700; color: var(--blue); }
+
+    /* Loading / result */
+    .center-screen {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      flex: 1; padding: 40px 24px; text-align: center;
+    }
+    .wave-loader { display: flex; gap: 8px; margin-bottom: 28px; }
+    .wave-loader span {
+      width: 13px; height: 13px;
+      border-radius: 50%;
+      background: var(--blue);
+      animation: wave-bob 1.2s infinite ease-in-out;
+    }
+    .wave-loader span:nth-child(1) { animation-delay: 0s; }
+    .wave-loader span:nth-child(2) { animation-delay: 0.15s; }
+    .wave-loader span:nth-child(3) { animation-delay: 0.30s; }
+    .wave-loader span:nth-child(4) { animation-delay: 0.45s; }
+    .wave-loader span:nth-child(5) { animation-delay: 0.60s; }
+    @keyframes wave-bob {
+      0%, 60%, 100% { transform: translateY(0); }
+      30%            { transform: translateY(-18px); }
+    }
+    .status-text  { font-size: 16px; color: var(--muted); font-weight: 500; }
+    .result-icon  { font-size: 72px; margin-bottom: 18px; }
+    .result-title { font-size: 26px; font-weight: 700; margin-bottom: 8px; }
+    .result-msg   { font-size: 16px; color: var(--muted); margin-bottom: 32px; max-width: 320px; }
+    .result-btn   { width: 200px; }
+
+    /* DUO screen */
+    .duo-icon  { font-size: 60px; margin-bottom: 16px; }
+    .duo-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .duo-sub   { font-size: 15px; color: var(--muted); margin-bottom: 28px; max-width: 280px; }
+    .duo-input-wrap { width: 100%; max-width: 280px; margin-bottom: 20px; }
+    .duo-input {
+      width: 100%;
+      padding: 18px;
+      border: 3px solid var(--blue);
+      border-radius: 14px;
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: 10px;
+      text-align: center;
+      -webkit-appearance: none;
+      font-family: monospace;
+    }
+    .duo-input:focus { outline: none; border-color: var(--gold); }
+
+    /* Day badge */
+    .day-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .day-badge.class-day  { background: rgba(255,209,0,0.25); color: var(--gold-dark); }
+    .day-badge.no-class   { background: rgba(108,117,125,0.15); color: var(--muted); }
+
+    /* Dry run toggle */
+    .dry-run-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #f5f5f5;
+      padding: 12px 16px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      cursor: pointer;
+    }
+    .dry-run-label { font-size: 13px; color: var(--muted); flex: 1; padding-right: 12px; }
+
+    .error-inline { color: var(--error); font-size: 14px; margin-top: 10px; text-align: center; }
+    .note         { text-align: center; font-size: 13px; color: var(--muted); margin-top: 14px; }
+    .section-gap  { margin-top: 24px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════ SETUP -->
+<div class="screen" id="screen-setup">
+  <div class="header">
+    <img src="/static/justin.jpg" alt="Justin EMBAlake"
+         style="width:140px;height:140px;object-fit:cover;border-radius:50%;margin-bottom:14px;border:3px solid rgba(255,209,0,0.6);">
+    <h1>Justin EMBAlake</h1>
+    <p>Your UCLA EMBA Parking Agent</p>
+  </div>
+  <div class="content">
+    <div class="card">
+      <div class="form-group">
+        <label>UCLA Logon ID</label>
+        <input type="text" id="s-username" placeholder="yourloginid"
+               autocomplete="username" autocapitalize="none" spellcheck="false">
+      </div>
+      <div class="form-group">
+        <label>UCLA Password</label>
+        <input type="password" id="s-password" placeholder="Your password"
+               autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label>License Plate</label>
+        <input type="text" id="s-plate1" placeholder="e.g. 9VSK311"
+               autocomplete="off" autocapitalize="characters" spellcheck="false">
+      </div>
+      <div class="form-group">
+        <label>Second Plate <span class="label-note">(optional)</span></label>
+        <input type="text" id="s-plate2" placeholder="e.g. ABC1234"
+               autocomplete="off" autocapitalize="characters" spellcheck="false">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Default Parking Structure</label>
+        <div class="toggle-row">
+          <button class="toggle-btn selected" id="setup-p4-btn" onclick="selectSetupStructure('p4')">
+            P4
+          </button>
+          <button class="toggle-btn" id="setup-p7-btn" onclick="selectSetupStructure('p7')">
+            P7
+          </button>
+        </div>
+      </div>
+    </div>
+    <div id="setup-err" class="error-inline" style="display:none"></div>
+    <div class="section-gap">
+      <button class="btn btn-primary" onclick="saveSetup()">Save &amp; Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ HOME -->
+<div class="screen" id="screen-home">
+  <div class="header">
+    <img src="/static/justin.jpg" alt="Justin EMBAlake"
+         style="width:110px;height:110px;object-fit:cover;border-radius:50%;margin-bottom:12px;border:3px solid rgba(255,209,0,0.6);">
+    <h1>Justin EMBAlake</h1>
+    <p>UCLA EMBA Parking Agent</p>
+  </div>
+  <div class="content">
+    <div class="profile-badge">
+      <div class="avatar" id="home-avatar">?</div>
+      <div class="profile-info">
+        <div class="profile-name" id="home-username">—</div>
+        <div class="profile-sub"  id="home-plates">—</div>
+      </div>
+      <button class="edit-link" onclick="openSetup()">Edit</button>
+    </div>
+
+    <div style="text-align:center;margin-bottom:20px;">
+      <div class="day-badge" id="day-badge">Checking schedule...</div>
+      <div style="font-size:14px;color:var(--muted);margin-top:4px;" id="day-detail"></div>
+    </div>
+
+    <button class="btn btn-gold btn-lg" onclick="startBuy()">Buy Parking Today 🅿️</button>
+    <p class="note" style="margin-top:20px">Yellow 1-Day Student · $8.01 · Charged to Bruin Bill</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ CONFIRM -->
+<div class="screen" id="screen-confirm">
+  <div class="header header-sm">
+    <h1>Confirm Purchase</h1>
+    <p>Review before buying</p>
+  </div>
+  <div class="content">
+    <div class="card">
+      <div class="confirm-label">Permit</div>
+      <div class="confirm-value">Yellow / 1-Day Student</div>
+      <div class="confirm-sub">Valid today only</div>
+      <div class="divider"></div>
+
+      <div class="confirm-label" style="margin-bottom:10px">License Plate</div>
+      <div id="plate-options"></div>
+
+      <div class="divider"></div>
+
+      <div class="confirm-label" style="margin-bottom:10px">Parking Structure</div>
+      <div class="toggle-row" style="margin-bottom:0">
+        <button class="toggle-btn" id="confirm-p4-btn" onclick="selectConfirmStructure('p4')">P4</button>
+        <button class="toggle-btn" id="confirm-p7-btn" onclick="selectConfirmStructure('p7')">P7</button>
+      </div>
+      <div class="divider"></div>
+
+      <div class="price-row">
+        <div>
+          <div class="confirm-label">Total Due</div>
+          <div class="confirm-sub">Charged to Bruin Bill</div>
+        </div>
+        <div class="price-tag">$8.01</div>
+      </div>
+    </div>
+
+    <label class="dry-run-row" id="dry-run-label">
+      <span class="dry-run-label">Ignore this toggle — it's for test runs to troubleshoot the app</span>
+      <span id="dry-run-visual" style="display:inline-block;width:44px;height:26px;background:#ccc;border-radius:13px;position:relative;transition:background .2s;flex-shrink:0;">
+        <span id="dry-run-knob" style="position:absolute;top:3px;left:3px;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform .2s;display:block;"></span>
+      </span>
+      <input type="checkbox" id="dry-run-toggle" style="display:none">
+    </label>
+
+    <button class="btn btn-gold" onclick="doRegister()">Buy Now — $8.01</button>
+    <button class="btn btn-outline" onclick="show('home')">Back</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ LOADING -->
+<div class="screen" id="screen-loading">
+  <div class="center-screen">
+    <div class="wave-loader">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="status-text" id="loading-msg">Starting...</div>
+    <p class="note" id="loading-note" style="margin-top:18px">This usually takes 1–2 minutes.<br>Keep the app open.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ DUO -->
+<div class="screen" id="screen-duo">
+  <div class="center-screen">
+    <div class="duo-icon">🔐</div>
+    <div class="duo-title">DUO Authentication</div>
+    <div class="duo-sub">Open your DUO app, tap <strong>Send a passcode</strong>, and enter the 6-digit code below.</div>
+    <div class="duo-input-wrap">
+      <input type="number" id="duo-code" class="duo-input" placeholder="000000"
+             maxlength="8" inputmode="numeric" pattern="\d{6,8}" autocomplete="one-time-code">
+    </div>
+    <button class="btn btn-primary result-btn" onclick="submitDuo()">Submit Code</button>
+    <div id="duo-err" class="error-inline" style="display:none"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ SUCCESS -->
+<div class="screen" id="screen-success">
+  <div class="center-screen">
+    <div id="success-gif-wrap" style="display:none;width:100%;max-width:300px;margin-bottom:20px;border-radius:16px;overflow:hidden;">
+      <img id="success-gif" src="/static/success.gif" alt="" style="width:100%;display:block;">
+    </div>
+    <div class="result-icon" id="success-icon">✅</div>
+    <div class="result-title" id="success-title">You're Parked!</div>
+    <div class="result-msg" id="success-msg">Parking purchased successfully.</div>
+    <button class="btn btn-primary result-btn" onclick="show('home')">Done</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ ERROR -->
+<div class="screen" id="screen-error">
+  <div class="center-screen">
+    <div class="result-icon">❌</div>
+    <div class="result-title">Something went wrong</div>
+    <div class="result-msg" id="error-msg">An error occurred</div>
+    <button class="btn btn-primary result-btn" onclick="show('home')">Try Again</button>
+  </div>
+</div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────────────
+const STRUCTURE_4  = "2127";
+const STRUCTURE_P7 = "2130";
+
+const PARKING_DATES = new Set([
+  "2026-01-09","2026-01-10","2026-02-13","2026-02-14","2026-02-21",
+  "2026-02-27","2026-02-28","2026-04-10","2026-04-11","2026-04-24",
+  "2026-04-25","2026-05-08","2026-05-09","2026-05-15","2026-05-16",
+  "2026-05-29","2026-05-30","2026-06-12","2026-06-13","2026-06-19",
+  "2026-06-20","2026-06-27","2026-07-18","2026-08-29","2026-10-02",
+  "2026-10-03","2026-10-16","2026-10-17","2026-10-30","2026-10-31",
+  "2026-11-13","2026-11-14","2026-12-04","2026-12-05","2026-12-11",
+  "2026-12-12","2027-01-08","2027-01-09","2027-01-29","2027-01-30",
+  "2027-02-05","2027-02-06","2027-02-19","2027-02-20","2027-03-05",
+  "2027-03-06","2027-04-02","2027-04-03","2027-04-30","2027-05-28",
+  "2027-05-29","2027-06-11",
+]);
+
+// ── State ──────────────────────────────────────────────────────────────────
+let currentJobId      = null;
+let selectedPlate     = null;
+let selectedStructure = STRUCTURE_4;
+
+// ── Screen nav ─────────────────────────────────────────────────────────────
+function show(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+// ── Profile helpers ────────────────────────────────────────────────────────
+function getProfile() {
+  return {
+    username:  localStorage.getItem('justin_username')  || '',
+    password:  localStorage.getItem('justin_password')  || '',
+    plate1:    localStorage.getItem('justin_plate1')    || '',
+    plate2:    localStorage.getItem('justin_plate2')    || '',
+    structure: localStorage.getItem('justin_structure') || 'p4',
+  };
+}
+
+function storeProfile(username, password, plate1, plate2, structure) {
+  localStorage.setItem('justin_username',  username);
+  localStorage.setItem('justin_password',  password);
+  localStorage.setItem('justin_plate1',    plate1);
+  localStorage.setItem('justin_plate2',    plate2);
+  localStorage.setItem('justin_structure', structure);
+}
+
+function esc(str) {
+  return String(str || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ── Setup screen ───────────────────────────────────────────────────────────
+let setupStructure = 'p4';
+
+function selectSetupStructure(val) {
+  setupStructure = val;
+  document.getElementById('setup-p4-btn').classList.toggle('selected', val === 'p4');
+  document.getElementById('setup-p7-btn').classList.toggle('selected', val === 'p7');
+}
+
+function openSetup() {
+  const p = getProfile();
+  document.getElementById('s-username').value = p.username;
+  document.getElementById('s-password').value = p.password;
+  document.getElementById('s-plate1').value   = p.plate1;
+  document.getElementById('s-plate2').value   = p.plate2;
+  setupStructure = p.structure || 'p4';
+  selectSetupStructure(setupStructure);
+  document.getElementById('setup-err').style.display = 'none';
+  show('setup');
+}
+
+function saveSetup() {
+  const username = document.getElementById('s-username').value.trim();
+  const password = document.getElementById('s-password').value;
+  const plate1   = document.getElementById('s-plate1').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const plate2   = document.getElementById('s-plate2').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const errEl    = document.getElementById('setup-err');
+
+  if (!username || !password) {
+    errEl.textContent = 'UCLA Logon ID and password are required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!plate1) {
+    errEl.textContent = 'License plate is required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+  storeProfile(username, password, plate1, plate2, setupStructure);
+  loadHome();
+  show('home');
+}
+
+// ── Home screen ────────────────────────────────────────────────────────────
+function loadHome() {
+  const p = getProfile();
+  document.getElementById('home-avatar').textContent  = p.username ? p.username[0].toUpperCase() : '?';
+  document.getElementById('home-username').textContent = p.username || 'Not configured';
+  const plates = [p.plate1, p.plate2].filter(Boolean);
+  document.getElementById('home-plates').textContent   = plates.join(' · ') || 'No plates saved';
+
+  // Check if today is a class day (Pacific time)
+  const now    = new Date();
+  const pst    = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  const today  = pst.toISOString().slice(0, 10);
+  const badge  = document.getElementById('day-badge');
+  const detail = document.getElementById('day-detail');
+
+  if (PARKING_DATES.has(today)) {
+    badge.textContent = '🎓 Class Day';
+    badge.className   = 'day-badge class-day';
+    detail.textContent = 'Parking is available today';
+  } else {
+    badge.textContent = 'No Class Today';
+    badge.className   = 'day-badge no-class';
+    detail.textContent = 'Come back on a class day';
+  }
+}
+
+// ── Dry run toggle ─────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const label  = document.getElementById('dry-run-label');
+  const toggle = document.getElementById('dry-run-toggle');
+  const visual = document.getElementById('dry-run-visual');
+  const knob   = document.getElementById('dry-run-knob');
+  if (label) {
+    label.addEventListener('click', e => {
+      e.preventDefault();
+      toggle.checked = !toggle.checked;
+      visual.style.background = toggle.checked ? 'var(--blue)' : '#ccc';
+      knob.style.transform    = toggle.checked ? 'translateX(18px)' : 'translateX(0)';
+    });
+  }
+});
+
+// ── Confirm screen ─────────────────────────────────────────────────────────
+function startBuy() {
+  const p = getProfile();
+  if (!p.username || !p.password) { openSetup(); return; }
+
+  // Build plate options
+  const plates = [p.plate1, p.plate2].filter(Boolean);
+  selectedPlate = plates[0];
+
+  const el = document.getElementById('plate-options');
+  if (plates.length === 1) {
+    el.innerHTML = `<div class="plate-btn selected">${esc(plates[0])}</div>`;
+  } else {
+    el.innerHTML = plates.map((pl, i) =>
+      `<button class="plate-btn ${i === 0 ? 'selected' : ''}" onclick="selectPlate('${esc(pl)}')">${esc(pl)}</button>`
+    ).join('');
+  }
+
+  // Set structure default
+  selectedStructure = p.structure === 'p7' ? STRUCTURE_P7 : STRUCTURE_4;
+  selectConfirmStructure(p.structure || 'p4');
+
+  show('confirm');
+}
+
+function selectPlate(plate) {
+  selectedPlate = plate;
+  document.querySelectorAll('.plate-btn').forEach(btn => {
+    btn.classList.toggle('selected', btn.textContent === plate);
+  });
+}
+
+function selectConfirmStructure(val) {
+  selectedStructure = val === 'p7' ? STRUCTURE_P7 : STRUCTURE_4;
+  document.getElementById('confirm-p4-btn').classList.toggle('selected', val === 'p4');
+  document.getElementById('confirm-p7-btn').classList.toggle('selected', val === 'p7');
+}
+
+// ── Buy flow ───────────────────────────────────────────────────────────────
+async function doRegister() {
+  const p = getProfile();
+  if (!selectedPlate) return;
+
+  document.getElementById('loading-msg').textContent = 'Starting purchase...';
+  document.getElementById('loading-note').style.display = 'block';
+  show('loading');
+
+  try {
+    const res  = await fetch('/api/buy', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        username:  p.username,
+        password:  p.password,
+        plate:     selectedPlate,
+        structure: selectedStructure,
+        dry_run:   document.getElementById('dry-run-toggle').checked,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    currentJobId = data.job_id;
+    pollJob(data.job_id);
+  } catch (err) {
+    document.getElementById('error-msg').textContent = err.message;
+    show('error');
+  }
+}
+
+// ── Job polling ────────────────────────────────────────────────────────────
+async function pollJob(jobId) {
+  const MAX_POLLS = 720; // 6 minutes at 500ms
+  let polls = 0;
+  let onDuoScreen = false;
+
+  while (polls++ < MAX_POLLS) {
+    await new Promise(r => setTimeout(r, 500));
+    try {
+      const res = await fetch('/api/job/' + jobId);
+      const job = await res.json();
+
+      if (job.status === 'awaiting_duo') {
+        if (!onDuoScreen) {
+          onDuoScreen = true;
+          document.getElementById('duo-code').value = '';
+          document.getElementById('duo-err').style.display = 'none';
+          show('duo');
+        }
+        continue; // keep polling so we catch when it resumes
+      }
+
+      // If we were on DUO screen and status changed, go back to loading
+      if (onDuoScreen && job.status === 'running') {
+        onDuoScreen = false;
+        show('loading');
+      }
+
+      if (job.message) document.getElementById('loading-msg').textContent = job.message;
+
+      if (job.status === 'done') {
+        handleSuccess(job.result);
+        return;
+      }
+      if (job.status === 'error') {
+        document.getElementById('error-msg').textContent = job.message;
+        show('error');
+        return;
+      }
+      if (job.status === 'not_found') {
+        document.getElementById('error-msg').textContent =
+          'Server restarted mid-purchase — check bruinepermit.t2hosted.com to confirm your status.';
+        show('error');
+        return;
+      }
+    } catch (e) {
+      document.getElementById('error-msg').textContent = 'Lost connection to server.';
+      show('error');
+      return;
+    }
+  }
+
+  document.getElementById('error-msg').textContent =
+    'Timed out — check bruinepermit.t2hosted.com to confirm your parking status.';
+  show('error');
+}
+
+// ── DUO submission ─────────────────────────────────────────────────────────
+async function submitDuo() {
+  const code  = document.getElementById('duo-code').value.trim();
+  const errEl = document.getElementById('duo-err');
+
+  if (!/^\d{6,8}$/.test(code)) {
+    errEl.textContent = 'Please enter your 6-digit DUO passcode.';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+
+  try {
+    const res  = await fetch('/api/duo/' + currentJobId, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ code }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    // Poll loop will detect status change and switch back to loading screen
+    show('loading');
+    document.getElementById('loading-msg').textContent = 'Verifying DUO code...';
+  } catch (err) {
+    errEl.textContent = err.message || 'Failed to submit code — try again.';
+    errEl.style.display = 'block';
+  }
+}
+
+// ── Success handler ────────────────────────────────────────────────────────
+function handleSuccess(result) {
+  if (result && result.dry_run) {
+    document.getElementById('success-title').textContent = 'Dry Run Complete!';
+    document.getElementById('success-msg').textContent =
+      'Everything worked up to the final step — no parking was purchased.';
+    document.getElementById('success-icon').style.display = 'none';
+    document.getElementById('success-gif-wrap').style.display = 'block';
+  } else {
+    const detail = (result && result.detail) ? result.detail : '';
+    document.getElementById('success-title').textContent = "You're Parked! 🅿️";
+    document.getElementById('success-msg').textContent   =
+      'Parking purchased successfully.' + (detail ? '\n' + detail : '');
+    document.getElementById('success-icon').style.display = 'none';
+    document.getElementById('success-gif-wrap').style.display = 'block';
+  }
+  show('success');
+}
+
+// ── PWA service worker ─────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+(function init() {
+  const p = getProfile();
+  if (p.username && p.password && p.plate1) {
+    loadHome();
+    show('home');
+  } else {
+    show('setup');
+  }
+})();
+</script>
+</body>
+</html>
