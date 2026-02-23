@@ -199,6 +199,8 @@ _SAFE_ERRORS = (
     "credentials",
     "Login failed",
     "Invalid",
+    "No vehicles found",
+    "No purchase confirmation",
 )
 
 def _safe_error(exc):

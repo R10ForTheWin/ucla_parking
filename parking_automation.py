@@ -185,6 +185,9 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=
 
     # Step 7: Select vehicle (auto-select all vehicles on the account)
     cb("Selecting vehicle...")
+    page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+    # Wait for at least one checkbox to appear before collecting all
+    page.get_by_role("checkbox").first.wait_for(timeout=config.PAGE_LOAD_TIMEOUT)
     checkboxes = page.get_by_role("checkbox").all()
     checked = 0
     for cb_el in checkboxes:
@@ -258,10 +261,15 @@ def run_purchase(username, password, structure, callback, duo_provider, dry_run=
             cb(f"Retrying... (attempt {attempt}/{config.MAX_RETRIES})")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=["--disable-gpu", "--no-sandbox"])
             context = browser.new_context()
             page = context.new_page()
             page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
+
+            # Block images, fonts, and media to speed up page loads
+            page.route("**/*", lambda route: route.abort()
+                if route.request.resource_type in ("image", "media", "font", "stylesheet")
+                else route.continue_())
 
             try:
                 result = _do_purchase(
