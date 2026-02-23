@@ -3,8 +3,6 @@ Justin EMBAlake – Playwright automation, decoupled from Telegram.
 Called by app.py in background threads.
 """
 
-import hashlib
-import json
 import os
 import re
 import time
@@ -13,44 +11,6 @@ from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
 import config
 
 BRUIN_BILL_RETRY_DELAY = 120  # seconds to wait when Bruin Bill is down
-
-# ── Session cache ─────────────────────────────────────────────────────────────
-_CACHE_DIR   = "/tmp/justin_cache"
-_SESSION_TTL = 43200  # 12 hours
-
-
-def _cache_path(username):
-    key = hashlib.sha256(username.lower().encode()).hexdigest()
-    return os.path.join(_CACHE_DIR, key + ".json")
-
-
-def _load_session(username):
-    try:
-        with open(_cache_path(username)) as f:
-            entry = json.load(f)
-        if entry.get("expires_at", 0) > time.time():
-            return entry.get("session")
-    except Exception:
-        pass
-    return None
-
-
-def _save_session(username, state):
-    try:
-        os.makedirs(_CACHE_DIR, exist_ok=True)
-        path = _cache_path(username)
-        with open(path, "w") as f:
-            json.dump({"session": state, "expires_at": time.time() + _SESSION_TTL}, f)
-        os.chmod(path, 0o600)
-    except Exception:
-        pass
-
-
-def _invalidate_session(username):
-    try:
-        os.remove(_cache_path(username))
-    except Exception:
-        pass
 
 
 class BruinBillUnavailable(Exception):
@@ -150,12 +110,7 @@ def _verify_purchase_success(page):
         return None
 
 
-def _needs_login(page):
-    """Return True if the current page is the UCLA SSO login page."""
-    return "sso.ucla.edu" in page.url or "login" in page.url.lower()
-
-
-def _do_purchase(page, context, username, password, structure, cb, duo_provider, dry_run=False):
+def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=False):
     # Step 1: Navigate
     cb("Opening the UCLA parking site...")
     page.goto(
@@ -172,34 +127,17 @@ def _do_purchase(page, context, username, password, structure, cb, duo_provider,
     # Step 2: Start permit flow
     cb("Starting permit flow...")
     page.get_by_role("button", name=re.compile(r"Get Permits", re.IGNORECASE)).click()
+    page.get_by_role("button", name="UCLA Logon").click()
 
-    # Check if session is cached — may skip UCLA Logon button and go straight in
-    page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+    # Step 3: UCLA SSO login
+    cb("Logging in with your UCLA credentials...")
+    page.get_by_placeholder("Your UCLA Logon ID").fill(username)
+    page.get_by_placeholder("Your UCLA Logon ID").press("Tab")
+    page.get_by_placeholder("Your UCLA Logon Password").fill(password)
+    page.get_by_role("button", name="Sign In").click()
 
-    if _needs_login(page) or page.get_by_role("button", name="UCLA Logon").count() > 0:
-        try:
-            page.get_by_role("button", name="UCLA Logon").click(timeout=5000)
-        except Exception:
-            pass
-
-        # Step 3: UCLA SSO login
-        cb("Logging in with your UCLA credentials...")
-        page.get_by_placeholder("Your UCLA Logon ID").fill(username)
-        page.get_by_placeholder("Your UCLA Logon ID").press("Tab")
-        page.get_by_placeholder("Your UCLA Logon Password").fill(password)
-        page.get_by_role("button", name="Sign In").click()
-
-        # Step 4: DUO 2FA
-        _handle_duo_passcode(page, duo_provider, cb)
-
-        # Save session so next run skips login+DUO
-        try:
-            _save_session(username, context.storage_state())
-        except Exception:
-            pass
-    else:
-        cb("Using saved session — skipping login...")
-
+    # Step 4: DUO 2FA
+    _handle_duo_passcode(page, duo_provider, cb)
     cb("Navigating to permits...")
 
     # Step 5: Handle orphaned cart if present
@@ -325,11 +263,7 @@ def run_purchase(username, password, structure, callback, duo_provider, dry_run=
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--disable-gpu", "--no-sandbox"])
 
-            # Load cached session if available (skips login+DUO on repeat runs)
-            cached_state = _load_session(username)
-            context = browser.new_context(
-                storage_state=cached_state if cached_state else None
-            )
+            context = browser.new_context()
             page = context.new_page()
             page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
 
@@ -340,7 +274,7 @@ def run_purchase(username, password, structure, callback, duo_provider, dry_run=
 
             try:
                 result = _do_purchase(
-                    page, context, username, password, structure,
+                    page, username, password, structure,
                     cb, duo_provider, dry_run=dry_run,
                 )
                 _screenshot(page, "success")
@@ -359,8 +293,6 @@ def run_purchase(username, password, structure, callback, duo_provider, dry_run=
             except Exception as e:
                 last_error = e
                 # If login failed, wipe cached session so next attempt does fresh login
-                if any(k in str(e) for k in ("credentials", "Login failed", "DUO")):
-                    _invalidate_session(username)
                 _screenshot(page, f"error_attempt{attempt}")
                 if attempt < config.MAX_RETRIES:
                     cb(f"Hit an issue (attempt {attempt}/{config.MAX_RETRIES}) — retrying...")
