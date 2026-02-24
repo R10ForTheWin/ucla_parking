@@ -188,6 +188,91 @@ def api_job(jid):
     return jsonify(_get(jid))
 
 
+# ── Push notifications ────────────────────────────────────────────────────
+
+import json as _json_mod
+
+_PUSH_SUBS_FILE = '/tmp/push_subs.json'
+_push_lock = threading.Lock()
+
+
+def _load_subs():
+    try:
+        with open(_PUSH_SUBS_FILE) as f:
+            return _json_mod.load(f)
+    except Exception:
+        return []
+
+
+def _save_subs(subs):
+    with open(_PUSH_SUBS_FILE, 'w') as f:
+        _json_mod.dump(subs, f)
+
+
+@app.route('/api/vapid-public-key')
+def api_vapid_public_key():
+    key = os.environ.get('VAPID_PUBLIC_KEY', '')
+    if not key:
+        return jsonify({'error': 'Not configured'}), 503
+    return jsonify({'key': key})
+
+
+@app.route('/api/subscribe', methods=['POST'])
+def api_subscribe():
+    sub = request.json
+    if not sub or 'endpoint' not in sub:
+        return jsonify({'error': 'Invalid subscription'}), 400
+    with _push_lock:
+        subs = _load_subs()
+        subs = [s for s in subs if s.get('endpoint') != sub['endpoint']]
+        subs.append(sub)
+        _save_subs(subs)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/send-push', methods=['POST'])
+def api_send_push():
+    token = request.headers.get('X-Push-Secret', '')
+    if not token or token != os.environ.get('PUSH_SECRET', ''):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data  = request.json or {}
+    title = data.get('title', '🅿️ Time to buy parking!')
+    body  = data.get('body',  'Today is a class day. Tap to open Justin.')
+
+    with _push_lock:
+        subs = _load_subs()
+
+    if not subs:
+        return jsonify({'sent': 0, 'note': 'No subscribers'})
+
+    from pywebpush import webpush, WebPushException
+    vapid_private = os.environ.get('VAPID_PRIVATE_KEY', '')
+    vapid_claims  = {'sub': 'mailto:noreply@example.com'}
+    sent, expired = 0, []
+
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info=sub,
+                data=_json_mod.dumps({'title': title, 'body': body}),
+                vapid_private_key=vapid_private,
+                vapid_claims=vapid_claims,
+            )
+            sent += 1
+        except WebPushException as ex:
+            if ex.response and ex.response.status_code in (404, 410):
+                expired.append(sub['endpoint'])
+            app.logger.warning('Push failed: %s', ex)
+
+    if expired:
+        with _push_lock:
+            clean = [s for s in _load_subs() if s.get('endpoint') not in expired]
+            _save_subs(clean)
+
+    return jsonify({'sent': sent, 'expired_cleaned': len(expired)})
+
+
 # ── Error sanitiser ───────────────────────────────────────────────────────
 
 _SAFE_ERRORS = (

@@ -24,10 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
-    env:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -38,9 +34,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          playwright install chromium
-          playwright install-deps chromium
+          pip install requests
 
       - name: Check if today is a class day
         id: datecheck
@@ -87,89 +81,42 @@ jobs:
           print(f'Ready! Time: {datetime.datetime.now(pacific).strftime(\"%H:%M:%S\")} PT')
           "
 
-      - name: Run purchase flow for all users
+      - name: Wake Render and send push notification
         if: steps.datecheck.outputs.should_run == 'true'
+        env:
+          JUSTIN_URL: ${{ secrets.JUSTIN_URL }}
+          PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
         run: |
           python -c "
-          import json, sys, concurrent.futures
-          import bot, buy_parking
-          from crypto_utils import load_users
+          import os, time, urllib.request, json
 
-          skip_prompt = '${{ github.event.inputs.skip_prompt }}' == 'true'
-          users = load_users()
-          if not users:
-              print('No registered users found.')
-              sys.exit(0)
+          url    = os.environ['JUSTIN_URL'].rstrip('/')
+          secret = os.environ['PUSH_SECRET']
 
-          print(f'Found {len(users)} registered user(s)')
+          # Wake the Render instance (free tier spins down)
+          print('Waking Render server...')
+          for attempt in range(12):
+              try:
+                  urllib.request.urlopen(url + '/ping', timeout=10)
+                  print('Server is up.')
+                  break
+              except Exception as e:
+                  print(f'  attempt {attempt+1}: {e}')
+                  time.sleep(10)
 
-          # Step 1: Send prompts to all users (unless skipping)
-          if skip_prompt:
-              approved_users = {str(u['telegram_chat_id']): True for u in users}
-          else:
-              prompts = bot.send_purchase_prompts(users)
-              print(f'Sent prompts to {len(prompts)} users, waiting for responses...')
-              responses = bot.poll_all_responses(prompts)
-              approved_users = {cid: ans for cid, ans in responses.items() if ans}
-              print(f'{len(approved_users)} user(s) approved')
-
-          if not approved_users:
-              print('No users approved. Done.')
-              sys.exit(0)
-
-          # Step 2: Collect plate and structure from each user
-          user_map = {str(u['telegram_chat_id']): u for u in users}
-          purchase_queue = []
-
-          for chat_id in approved_users:
-              user = user_map[chat_id]
-              name = user['ucla_username']
-              print(f'--- Collecting info for {name} ---')
-
-              plates = user.get('plates', [user['default_plate']] if 'default_plate' in user else [])
-              plate = bot.ask_for_plate(chat_id, plates)
-              if not plate:
-                  bot.send_message(chat_id, 'No plate selected. Skipping.')
-                  continue
-
-              structure = bot.ask_for_structure(chat_id)
-
-              # Confirmation step
-              if not bot.ask_for_confirmation(chat_id, plate, structure):
-                  bot.send_message(chat_id, 'Purchase cancelled.')
-                  continue
-
-              bot.send_message(chat_id, 'Starting purchase now...')
-              purchase_queue.append((chat_id, user, plate, structure))
-
-          # Step 3: Run purchases (parallel if multiple users)
-          failed = False
-
-          def do_purchase(args):
-              cid, usr, plt, struct = args
-              result = buy_parking.run(
-                  username=usr['ucla_username'],
-                  password=usr['ucla_password'],
-                  plate=plt,
-                  structure=struct,
-                  chat_id=cid,
-                  headless=True,
-              )
-              if result:
-                  bot.send_success(cid, result)
-              return result is not None
-
-          if len(purchase_queue) == 1:
-              if not do_purchase(purchase_queue[0]):
-                  failed = True
-          elif len(purchase_queue) > 1:
-              with concurrent.futures.ThreadPoolExecutor(max_workers=len(purchase_queue)) as pool:
-                  results = pool.map(do_purchase, purchase_queue)
-                  if not all(results):
-                      failed = True
-
-          if failed:
-              sys.exit(1)
+          # Send push notification
+          req = urllib.request.Request(
+              url + '/api/send-push',
+              data=json.dumps({
+                  'title': '🅿️ Parking Day!',
+                  'body':  'Tap to open Justin and buy parking for today.'
+              }).encode(),
+              headers={'Content-Type': 'application/json', 'X-Push-Secret': secret},
+              method='POST',
+          )
+          with urllib.request.urlopen(req, timeout=15) as resp:
+              result = json.loads(resp.read())
+          print(f'Push result: {result}')
           "
 
       - name: Upload screenshots
