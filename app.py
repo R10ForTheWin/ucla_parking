@@ -218,7 +218,7 @@ def _save_subs(subs):
 
 @app.route('/api/vapid-public-key')
 def api_vapid_public_key():
-    key = os.environ.get('VAPID_PUBLIC_KEY', '')
+    key = os.environ.get('VAPID_PUBLIC_KEY', '').strip()
     if not key:
         return jsonify({'error': 'Not configured'}), 503
     return jsonify({'key': key})
@@ -254,7 +254,7 @@ def api_send_push():
         return jsonify({'sent': 0, 'note': 'No subscribers'})
 
     from pywebpush import webpush, WebPushException
-    vapid_private = os.environ.get('VAPID_PRIVATE_KEY', '')
+    vapid_private = os.environ.get('VAPID_PRIVATE_KEY', '').strip()
     vapid_claims  = {'sub': 'mailto:noreply@example.com'}
     sent, expired = 0, []
 
