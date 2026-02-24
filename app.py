@@ -20,7 +20,7 @@ _jobs      = {}
 _jobs_lock = threading.Lock()
 
 # One Playwright browser at a time
-_browser_lock = threading.BoundedSemaphore(1)
+_browser_lock = threading.BoundedSemaphore(3)
 
 
 # ── Security headers ──────────────────────────────────────────────────────
