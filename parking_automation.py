@@ -302,6 +302,26 @@ def run_purchase(username, password, structure, callback, duo_provider, dry_run=
         if callback:
             callback(msg)
 
+    if dry_run:
+        # Mock flow — no browser, no UCLA servers touched.
+        # Exercises the full web-UI state machine (loading → DUO → loading → success).
+        cb("Opening the UCLA parking site...")
+        time.sleep(1.5)
+        cb("Logging in with your UCLA credentials...")
+        time.sleep(1.5)
+        cb("DUO authentication required...")
+        duo_provider()           # blocks until user submits code in the UI
+        cb("Navigating to permits...")
+        time.sleep(1.0)
+        cb("Selecting permit...")
+        time.sleep(1.0)
+        cb("Selecting vehicle...")
+        time.sleep(0.8)
+        cb("Selecting parking structure...")
+        time.sleep(0.8)
+        cb("Dry run complete — stopping before Process Transaction.")
+        return "dry_run"
+
     last_error = None
 
     for attempt in range(1, config.MAX_RETRIES + 1):
