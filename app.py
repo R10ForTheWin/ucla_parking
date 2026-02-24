@@ -96,6 +96,13 @@ def ping():
     return "ok", 200
 
 
+@app.route("/sw.js")
+def sw_js():
+    response = app.send_static_file("sw.js")
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
