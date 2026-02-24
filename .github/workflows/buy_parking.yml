@@ -9,11 +9,6 @@ on:
     # PDT (Mar–Nov): 5 AM PDT = 12:00 PM UTC
     - cron: "0 12 * * 5,6"
   workflow_dispatch:
-    inputs:
-      skip_prompt:
-        description: "Skip Yes/No prompt and buy immediately"
-        type: boolean
-        default: false
 
 concurrency:
   group: buy-parking
@@ -22,7 +17,7 @@ concurrency:
 jobs:
   buy-parking:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
