@@ -19,8 +19,8 @@ app = Flask(__name__)
 _jobs      = {}
 _jobs_lock = threading.Lock()
 
-# One Playwright browser at a time
-_browser_lock = threading.BoundedSemaphore(3)
+# Up to 3 concurrent Playwright sessions
+_browser_lock    = threading.BoundedSemaphore(3)
 
 
 # ── Security headers ──────────────────────────────────────────────────────
@@ -130,9 +130,10 @@ def api_buy():
             waited += 5
             if waited >= 120:
                 _update(jid, status="error",
-                        message="Server is too busy right now — please try again in a moment.")
+                        message="Justin is too busy right now — please try again in a moment.")
                 return
-            _update(jid, message=f"Server is busy, waiting... ({waited}s)")
+            _update(jid, status="queued",
+                    message="Justin is helping another EMBA with their parking right now. You are next in line. Please standby!")
 
         try:
             from parking_automation import run_purchase
