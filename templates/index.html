@@ -332,14 +332,15 @@
 
     <div id="notif-row" class="notif-toggle-row" style="display:none;" onclick="toggleNotifications()">
       <div class="notif-toggle-label">
-        <div class="ntl-title">School Day Notifications</div>
-        <div id="notif-sub" class="ntl-sub">Receive alerts on EMBA 2027 class days</div>
+        <div class="ntl-title">Notifications</div>
+        <div id="notif-sub" class="ntl-sub">Receive notification on school mornings</div>
       </div>
       <div style="position:relative;width:44px;height:26px;flex-shrink:0;pointer-events:none;">
         <span id="notif-toggle-visual" style="position:absolute;inset:0;background:#ccc;border-radius:13px;transition:background .2s;display:block;"></span>
         <span id="notif-toggle-knob"   style="position:absolute;top:3px;left:3px;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform .2s;display:block;box-shadow:0 1px 3px rgba(0,0,0,.25);"></span>
       </div>
     </div>
+    <div id="notif-err" style="display:none;font-size:13px;color:var(--error);margin:-8px 0 12px 4px;"></div>
 
     <button class="btn btn-gold btn-lg" onclick="startBuy()">Buy Parking Today 🅿️</button>
     <p class="note" style="margin-top:20px">Yellow 1-Day Student · $8.01 · Charged to Bruin Bill</p>
@@ -758,6 +759,13 @@ async function _hasSubscription() {
   } catch { return false; }
 }
 
+function _setNotifError(msg) {
+  const el = document.getElementById('notif-err');
+  if (!el) return;
+  if (msg) { el.textContent = msg; el.style.display = 'block'; }
+  else      { el.style.display = 'none'; }
+}
+
 async function _updateNotifButton() {
   const row = document.getElementById('notif-row');
   if (!row) return;
@@ -770,12 +778,13 @@ async function _updateNotifButton() {
   _setNotifToggle(on);
   const sub = document.getElementById('notif-sub');
   if (sub) sub.textContent = denied
-    ? 'Notifications blocked — enable in browser settings'
-    : 'Receive alerts on EMBA 2027 class days';
+    ? 'Blocked — enable in your browser settings'
+    : 'Receive notification on school mornings';
 }
 
 async function toggleNotifications() {
-  if (Notification.permission === 'denied') return; // browser blocked — nothing we can do
+  if (Notification.permission === 'denied') return;
+  _setNotifError(null);
 
   if (Notification.permission === 'granted' && await _hasSubscription()) {
     try {
@@ -783,12 +792,15 @@ async function toggleNotifications() {
       const sub = await reg.pushManager.getSubscription();
       if (sub) await sub.unsubscribe();
       _setNotifToggle(false);
-    } catch (e) { console.warn('Unsubscribe failed:', e); }
+    } catch (e) {
+      _setNotifError('Could not turn off notifications — try again.');
+    }
   } else {
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') { await _updateNotifButton(); return; }
     try {
       const key = await _getVapidKey();
+      if (!key) throw new Error('not configured');
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
@@ -800,7 +812,10 @@ async function toggleNotifications() {
         body: JSON.stringify(sub),
       });
       _setNotifToggle(true);
-    } catch (e) { console.warn('Push subscribe failed:', e); }
+    } catch (e) {
+      _setNotifError('Could not enable notifications — try again later.');
+      console.warn('Push subscribe failed:', e);
+    }
   }
 }
 
