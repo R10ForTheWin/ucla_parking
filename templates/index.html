@@ -343,7 +343,7 @@
     <div id="notif-err" style="display:none;font-size:13px;color:var(--error);margin:-8px 0 12px 4px;"></div>
 
     <button class="btn btn-gold btn-lg" onclick="startBuy()">Buy Parking Today 🅿️</button>
-    <p class="note" style="margin-top:20px">Yellow 1-Day Student · $8.01 · Charged to Bruin Bill</p>
+    <p class="note" style="margin-top:20px">Yellow 1-Day Student · $8.01 · Payment on file</p>
   </div>
 </div>
 
@@ -370,7 +370,7 @@
       <div class="price-row">
         <div>
           <div class="confirm-label">Total Due</div>
-          <div class="confirm-sub">Charged to Bruin Bill</div>
+          <div class="confirm-sub">Payment on file</div>
         </div>
         <div class="price-tag">$8.01</div>
       </div>
@@ -417,6 +417,7 @@
     <div class="result-title" id="success-title">You're Parked!</div>
     <div class="result-msg" id="success-msg">Parking purchased successfully.</div>
     <button class="btn btn-primary result-btn" onclick="show('home')">Done</button>
+    <button class="btn btn-outline result-btn" onclick="shareApp()" style="margin-top:10px">Share with a Classmate</button>
   </div>
 </div>
 
@@ -816,6 +817,22 @@ async function toggleNotifications() {
       _setNotifError('Could not enable notifications — try again later.');
       console.warn('Push subscribe failed:', e);
     }
+  }
+}
+
+// ── Share ──────────────────────────────────────────────────────────────────
+function shareApp() {
+  const data = {
+    title: 'Justin EMBAlake',
+    text:  'This app auto-buys UCLA EMBA parking for you on class days.',
+    url:   'https://justin-embalake.onrender.com',
+  };
+  if (navigator.share) {
+    navigator.share(data).catch(() => {});
+  } else {
+    navigator.clipboard.writeText(data.url)
+      .then(() => alert('Link copied to clipboard!'))
+      .catch(() => alert('Share: ' + data.url));
   }
 }
 
