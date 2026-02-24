@@ -108,7 +108,7 @@ jobs:
           req = urllib.request.Request(
               url + '/api/send-push',
               data=json.dumps({
-                  'title': "It's a school Day!",
+                  'title': "It's a School Day!",
                   'body':  'Tap to open Justin and buy parking for today.'
               }).encode(),
               headers={'Content-Type': 'application/json', 'X-Push-Secret': secret},
