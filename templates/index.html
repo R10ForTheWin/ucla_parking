@@ -516,6 +516,8 @@ function saveSetup() {
   loadHome();
   show('home');
   _updateNotifButton();
+  // Auto-prompt for notifications on first setup if not yet granted
+  if (Notification.permission === 'default') toggleNotifications();
 }
 
 // ── Home screen ────────────────────────────────────────────────────────────
@@ -831,7 +833,7 @@ async function toggleNotifications() {
 function shareApp() {
   const data = {
     title: 'Justin EMBAlake',
-    text:  'This app auto-buys UCLA EMBA parking for you on class days.',
+    text:  'This app handles UCLA EMBA parking for you on class days — interfaces with the Bruin ePermit website so you don\'t have to. No more $60 tickets!',
     url:   'https://justin-embalake.onrender.com',
   };
   if (navigator.share) {
