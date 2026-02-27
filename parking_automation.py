@@ -104,6 +104,11 @@ def _handle_duo_passcode(page, duo_provider, cb):
         page.wait_for_url("**/duosecurity.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
     except PwTimeout:
         _screenshot(page, "duo_timeout")
+        try:
+            print(f"[JUSTIN DUO] Timeout. URL: {page.url}", flush=True)
+            print(f"[JUSTIN DUO] Body:\n{page.inner_text('body')[:800]}", flush=True)
+        except Exception:
+            pass
         raise Exception(
             f"DUO page did not load (still on {page.url}). "
             "Check your UCLA credentials and try again."
@@ -209,6 +214,15 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=
     page.get_by_placeholder("Your UCLA Logon ID").press("Tab")
     page.get_by_placeholder("Your UCLA Logon Password").fill(password)
     page.get_by_role("button", name="Sign In").click()
+
+    # Diagnostic: log what page we land on after Sign In
+    page.wait_for_load_state("domcontentloaded")
+    print(f"[JUSTIN SSO] After Sign In — URL: {page.url}", flush=True)
+    try:
+        print(f"[JUSTIN SSO] Body:\n{page.inner_text('body')[:800]}", flush=True)
+    except Exception:
+        pass
+    _screenshot(page, "after_sign_in")
 
     # Step 4: DUO 2FA
     _handle_duo_passcode(page, duo_provider, cb)
