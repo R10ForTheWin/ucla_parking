@@ -95,109 +95,42 @@ def _wait_for_queue_it(page, cb):
 
 
 def _handle_duo_passcode(page, duo_provider, cb):
-    """Pause automation, ask web UI for DUO passcode, then continue.
-    Supports both DUO classic (iframe + 'Send a passcode') and
-    DUO Universal Prompt (iframe + 'Other options' → 'Passcode')."""
+    """Wait for DUO Universal Prompt full-page redirect, click 'Send a passcode',
+    collect the code from the user, then submit it."""
     cb("DUO authentication required...")
 
-    # Diagnostic: screenshot + log everything so we can see what Playwright sees
-    _screenshot(page, "duo_page")
-    print(f"[JUSTIN DUO] URL: {page.url}", flush=True)
+    # Wait for the browser to land on the DUO page after UCLA SSO redirect
     try:
-        print(f"[JUSTIN DUO] Page title: {page.title()}", flush=True)
-        print(f"[JUSTIN DUO] Body text:\n{page.inner_text('body')[:1000]}", flush=True)
-    except Exception as e:
-        print(f"[JUSTIN DUO] Could not read body: {e}", flush=True)
-    try:
-        frames = page.frames
-        print(f"[JUSTIN DUO] Frames ({len(frames)}):", flush=True)
-        for i, f in enumerate(frames):
-            print(f"[JUSTIN DUO]   frame[{i}] url={f.url} name={f.name}", flush=True)
-            try:
-                print(f"[JUSTIN DUO]   frame[{i}] body: {f.inner_text('body')[:300]}", flush=True)
-            except Exception:
-                pass
-    except Exception as e:
-        print(f"[JUSTIN DUO] Could not enumerate frames: {e}", flush=True)
-
-    # DUO always renders inside an iframe — find it first.
-    duo_frame = None
-    for selector in [
-        "iframe[id*='duo']",
-        "iframe[src*='duosecurity']",
-        "iframe[src*='duoapi']",
-        "iframe[title*='Duo']",
-        "iframe[title*='Two-Factor']",
-        "iframe",
-    ]:
-        try:
-            frame_loc = page.frame_locator(selector)
-            # Verify the iframe has DUO content by checking for a known element
-            if frame_loc.locator("body").count() > 0:
-                duo_frame = frame_loc
-                break
-        except Exception:
-            pass
-
-    def _get_loc(name, role="button", exact=False):
-        """Try the DUO iframe first, then fall back to the main page."""
-        if duo_frame:
-            try:
-                loc = duo_frame.get_by_role(role, name=name)
-                if loc.count() > 0:
-                    return loc
-            except Exception:
-                pass
-        return page.get_by_role(role, name=name)
-
-    # --- DUO classic: "Send a passcode" button ---
-    clicked = False
-    try:
-        btn = _get_loc("Send a passcode")
-        btn.first.click(timeout=5000)
-        clicked = True
-    except Exception:
-        pass
-
-    # --- DUO Universal Prompt: "Other options" → "Passcode" ---
-    if not clicked:
-        try:
-            other = _get_loc(re.compile(r"other.options|use.a.passcode|passcode", re.IGNORECASE))
-            other.first.click(timeout=5000)
-            # After clicking "Other options", look for the Passcode tile
-            try:
-                passcode_tile = _get_loc(re.compile(r"^passcode$", re.IGNORECASE))
-                passcode_tile.first.click(timeout=5000)
-            except Exception:
-                pass
-            clicked = True
-        except Exception:
-            pass
-
-    if not clicked:
+        page.wait_for_url("**/duosecurity.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
+    except PwTimeout:
+        _screenshot(page, "duo_timeout")
         raise Exception(
-            "Could not find the DUO passcode option — "
-            "the DUO page may have changed. Try again or use DUO Push."
+            f"DUO page did not load (still on {page.url}). "
+            "Check your UCLA credentials and try again."
         )
+    page.wait_for_load_state("domcontentloaded")
+
+    # Click "Send a passcode" — try button role first, then link (DUO renders it as a <button>)
+    clicked = False
+    for role in ("button", "link"):
+        try:
+            page.get_by_role(role, name="Send a passcode").first.click(timeout=10000)
+            clicked = True
+            break
+        except Exception:
+            pass
+    if not clicked:
+        _screenshot(page, "duo_no_button")
+        raise Exception("Could not find 'Send a passcode' on the DUO page — try again.")
 
     # duo_provider() blocks until the user submits their code via the web UI
     code = duo_provider()
     if not code:
         raise TimeoutError("DUO passcode not received — timed out after 2 minutes.")
 
-    # Fill the passcode input (iframe-aware)
-    filled = False
-    for role, name in [("textbox", "Passcode"), ("textbox", re.compile(r"passcode|code", re.IGNORECASE))]:
-        try:
-            inp = _get_loc(name, role=role)
-            inp.first.fill(code, timeout=10000)
-            inp.first.press("Enter")
-            filled = True
-            break
-        except Exception:
-            pass
-    if not filled:
-        raise Exception("Could not fill the DUO passcode field.")
+    # Fill the passcode input and submit
+    page.get_by_role("textbox").first.fill(code)
+    page.get_by_role("textbox").first.press("Enter")
 
     page.wait_for_url("**/bruinepermit.t2hosted.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
     cb("DUO verified!")
