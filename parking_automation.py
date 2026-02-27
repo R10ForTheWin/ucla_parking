@@ -100,6 +100,26 @@ def _handle_duo_passcode(page, duo_provider, cb):
     DUO Universal Prompt (iframe + 'Other options' → 'Passcode')."""
     cb("DUO authentication required...")
 
+    # Diagnostic: screenshot + log everything so we can see what Playwright sees
+    _screenshot(page, "duo_page")
+    print(f"[JUSTIN DUO] URL: {page.url}", flush=True)
+    try:
+        print(f"[JUSTIN DUO] Page title: {page.title()}", flush=True)
+        print(f"[JUSTIN DUO] Body text:\n{page.inner_text('body')[:1000]}", flush=True)
+    except Exception as e:
+        print(f"[JUSTIN DUO] Could not read body: {e}", flush=True)
+    try:
+        frames = page.frames
+        print(f"[JUSTIN DUO] Frames ({len(frames)}):", flush=True)
+        for i, f in enumerate(frames):
+            print(f"[JUSTIN DUO]   frame[{i}] url={f.url} name={f.name}", flush=True)
+            try:
+                print(f"[JUSTIN DUO]   frame[{i}] body: {f.inner_text('body')[:300]}", flush=True)
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[JUSTIN DUO] Could not enumerate frames: {e}", flush=True)
+
     # DUO always renders inside an iframe — find it first.
     duo_frame = None
     for selector in [
