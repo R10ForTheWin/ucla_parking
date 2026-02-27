@@ -104,13 +104,26 @@ def _handle_duo_passcode(page, duo_provider, cb):
         page.wait_for_url("**/duosecurity.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
     except PwTimeout:
         _screenshot(page, "duo_timeout")
+        url = page.url
+        body_text = ""
         try:
-            print(f"[JUSTIN DUO] Timeout. URL: {page.url}", flush=True)
-            print(f"[JUSTIN DUO] Body:\n{page.inner_text('body')[:800]}", flush=True)
+            print(f"[JUSTIN DUO] Timeout. URL: {url}", flush=True)
+            body_text = page.inner_text("body")
+            print(f"[JUSTIN DUO] Body:\n{body_text[:800]}", flush=True)
         except Exception:
             pass
+        # Detect wrong credentials — SSO bounces back to login with an error
+        body_lower = body_text.lower()
+        if any(p in body_lower for p in [
+            "incorrect", "invalid", "login failed",
+            "authentication failed", "wrong password", "please try again",
+        ]):
+            raise Exception(
+                "UCLA login failed — wrong username or password. "
+                "Go to Setup and double-check your credentials."
+            )
         raise Exception(
-            f"DUO page did not load (still on {page.url}). "
+            f"DUO page did not load (still on {url}). "
             "Check your UCLA credentials and try again."
         )
     page.wait_for_load_state("domcontentloaded")
@@ -218,10 +231,23 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=
     # Diagnostic: log what page we land on after Sign In
     page.wait_for_load_state("domcontentloaded")
     print(f"[JUSTIN SSO] After Sign In — URL: {page.url}", flush=True)
+    sso_body = ""
     try:
-        print(f"[JUSTIN SSO] Body:\n{page.inner_text('body')[:800]}", flush=True)
+        sso_body = page.inner_text("body")
+        print(f"[JUSTIN SSO] Body:\n{sso_body[:800]}", flush=True)
     except Exception:
         pass
+    # If still on Shibboleth SSO, check for a credential error immediately
+    if "shb.ais.ucla.edu" in page.url and sso_body:
+        sso_lower = sso_body.lower()
+        if any(p in sso_lower for p in [
+            "incorrect", "invalid", "login failed",
+            "authentication failed", "wrong password", "please try again",
+        ]):
+            raise Exception(
+                "UCLA login failed — wrong username or password. "
+                "Go to Setup and double-check your credentials."
+            )
     _screenshot(page, "after_sign_in")
 
     # Step 4: DUO 2FA
