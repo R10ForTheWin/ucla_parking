@@ -322,13 +322,17 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=
     raise Exception("No purchase confirmation found on page — check manually: https://bruinepermit.t2hosted.com")
 
 
-def run_purchase(username, password, structure, callback, duo_provider, dry_run=False):
-    """Run the full purchase flow for one user, with retries."""
+def run_purchase(username, password, structure, callback, duo_provider, dry_run=False, real_dry_run=False):
+    """Run the full purchase flow for one user, with retries.
+
+    dry_run=True      — mock flow, no browser, just tests the web UI state machine.
+    real_dry_run=True — real browser, real UCLA site, real DUO, stops before Process Transaction.
+    """
     def cb(msg):
         if callback:
             callback(msg)
 
-    if dry_run:
+    if dry_run and not real_dry_run:
         # Mock flow — no browser, no UCLA servers touched.
         # Exercises the full web-UI state machine (loading → DUO → loading → success).
         cb("Opening the UCLA parking site...")
@@ -385,7 +389,7 @@ def run_purchase(username, password, structure, callback, duo_provider, dry_run=
             try:
                 result = _do_purchase(
                     page, username, password, structure,
-                    cb, duo_provider, dry_run=dry_run,
+                    cb, duo_provider, dry_run=(dry_run or real_dry_run),
                 )
                 _screenshot(page, "success")
                 return result

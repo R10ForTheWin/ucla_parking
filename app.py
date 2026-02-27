@@ -115,7 +115,8 @@ def api_buy():
     username  = data.get("username",  "").strip()
     password  = data.get("password",  "").strip()
     structure = data.get("structure", "").strip()
-    dry_run   = bool(data.get("dry_run", False))
+    dry_run      = bool(data.get("dry_run", False))
+    real_dry_run = bool(data.get("real_dry_run", False))
 
     if not all([username, password, structure]):
         return jsonify({"error": "Missing required fields"}), 400
@@ -155,6 +156,7 @@ def api_buy():
                 callback=lambda m: _update(jid, message=m),
                 duo_provider=duo_provider,
                 dry_run=dry_run,
+                real_dry_run=real_dry_run,
             )
 
             if result == "dry_run":

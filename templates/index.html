@@ -593,7 +593,7 @@ async function doRegister() {
         username:  p.username,
         password:  p.password,
         structure: selectedStructure,
-        dry_run:   document.getElementById('dry-run-toggle').checked,
+        real_dry_run: document.getElementById('dry-run-toggle').checked,
       }),
     });
     const data = await res.json();
