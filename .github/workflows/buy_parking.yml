@@ -87,7 +87,7 @@ jobs:
           JUSTIN_URL: ${{ secrets.JUSTIN_URL }}
           PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
         run: |
-          python -c "
+          python - <<'PYEOF'
           import os, time, urllib.request, json
 
           url    = os.environ['JUSTIN_URL'].rstrip('/')
@@ -117,7 +117,7 @@ jobs:
           with urllib.request.urlopen(req, timeout=15) as resp:
               result = json.loads(resp.read())
           print(f'Push result: {result}')
-          "
+          PYEOF
 
       - name: Upload screenshots
         if: always()
