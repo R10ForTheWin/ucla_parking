@@ -424,8 +424,8 @@
 <!-- ═══════════════════════════════════════════ ERROR -->
 <div class="screen" id="screen-error">
   <div class="center-screen">
-    <div class="result-icon">❌</div>
-    <div class="result-title">Something went wrong</div>
+    <div class="result-icon" id="error-icon">❌</div>
+    <div class="result-title" id="error-title">Something went wrong</div>
     <div class="result-msg" id="error-msg">An error occurred</div>
     <button class="btn btn-primary result-btn" onclick="show('home')">Try Again</button>
   </div>
@@ -601,9 +601,16 @@ async function doRegister() {
     currentJobId = data.job_id;
     pollJob(data.job_id);
   } catch (err) {
-    document.getElementById('error-msg').textContent = err.message;
-    show('error');
+    showError(err.message);
   }
+}
+
+function showError(msg) {
+  const soldOut = msg.toLowerCase().includes('sold out');
+  document.getElementById('error-icon').textContent  = soldOut ? '🅿️' : '❌';
+  document.getElementById('error-title').textContent = soldOut ? 'No Parking Available' : 'Something went wrong';
+  document.getElementById('error-msg').textContent   = msg;
+  show('error');
 }
 
 // ── Job polling ────────────────────────────────────────────────────────────
@@ -649,26 +656,20 @@ async function pollJob(jobId) {
         return;
       }
       if (job.status === 'error') {
-        document.getElementById('error-msg').textContent = job.message;
-        show('error');
+        showError(job.message);
         return;
       }
       if (job.status === 'not_found') {
-        document.getElementById('error-msg').textContent =
-          'Server restarted mid-purchase — check bruinepermit.t2hosted.com to confirm your status.';
-        show('error');
+        showError('Server restarted mid-purchase — check bruinepermit.t2hosted.com to confirm your status.');
         return;
       }
     } catch (e) {
-      document.getElementById('error-msg').textContent = 'Lost connection to server.';
-      show('error');
+      showError('Lost connection to server.');
       return;
     }
   }
 
-  document.getElementById('error-msg').textContent =
-    'Timed out — check bruinepermit.t2hosted.com to confirm your parking status.';
-  show('error');
+  showError('Timed out — check bruinepermit.t2hosted.com to confirm your parking status.');
 }
 
 // ── DUO submission ─────────────────────────────────────────────────────────
