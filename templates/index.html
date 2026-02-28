@@ -427,7 +427,7 @@
     <div class="result-icon" id="error-icon">❌</div>
     <div class="result-title" id="error-title">Something went wrong</div>
     <div class="result-msg" id="error-msg">An error occurred</div>
-    <button class="btn btn-primary result-btn" onclick="show('home')">Try Again</button>
+    <button class="btn btn-primary result-btn" id="error-btn" onclick="show('home')">Try Again</button>
   </div>
 </div>
 
@@ -613,8 +613,9 @@ function showError(msg) {
   } else {
     iconEl.textContent = '❌';
   }
-  document.getElementById('error-title').textContent = soldOut ? 'Cry Me A River' : 'Something went wrong';
-  document.getElementById('error-msg').textContent   = msg;
+  document.getElementById('error-title').textContent    = soldOut ? 'Cry Me A River' : 'Something went wrong';
+  document.getElementById('error-msg').textContent      = msg;
+  document.getElementById('error-btn').style.display    = soldOut ? 'none' : '';
   show('error');
 }
 
