@@ -607,7 +607,12 @@ async function doRegister() {
 
 function showError(msg) {
   const soldOut = msg.toLowerCase().includes('sold out');
-  document.getElementById('error-icon').textContent  = soldOut ? '🅿️' : '❌';
+  const iconEl  = document.getElementById('error-icon');
+  if (soldOut) {
+    iconEl.innerHTML = '<img src="/static/soldout.gif" style="width:180px;border-radius:12px;">';
+  } else {
+    iconEl.textContent = '❌';
+  }
   document.getElementById('error-title').textContent = soldOut ? 'No Parking Available' : 'Something went wrong';
   document.getElementById('error-msg').textContent   = msg;
   show('error');
