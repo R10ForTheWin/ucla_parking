@@ -128,7 +128,7 @@ def _handle_duo_passcode(page, duo_provider, cb):
             f"DUO page did not load (still on {url}). "
             "Check your UCLA credentials and try again."
         )
-    page.wait_for_load_state("domcontentloaded")
+    page.wait_for_load_state("networkidle")
 
     # Click the passcode option — label varies by DUO UI version.
     # New Universal Prompt (frameless): "Use a Passcode" or "Enter a Passcode"
@@ -147,6 +147,15 @@ def _handle_duo_passcode(page, duo_provider, cb):
     if not clicked:
         _screenshot(page, "duo_no_button")
         raise Exception("Could not find passcode button on the DUO page — try again.")
+
+    # Wait for the passcode textbox to appear on the DUO page before notifying
+    # the user — this confirms DUO has actually sent the SMS/code, so Justin's
+    # "enter your code" screen and the arriving text are in sync.
+    try:
+        page.get_by_role("textbox").first.wait_for(timeout=30000)
+    except Exception:
+        _screenshot(page, "duo_no_textbox")
+        raise Exception("DUO did not show a passcode input — try again.")
 
     # duo_provider() blocks until the user submits their code via the web UI
     code = duo_provider()
