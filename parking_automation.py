@@ -99,9 +99,11 @@ def _handle_duo_passcode(page, duo_provider, cb):
     collect the code from the user, then submit it."""
     cb("DUO authentication required...")
 
-    # Wait for the browser to land on the DUO page after UCLA SSO redirect
+    # Wait for the browser to land on the DUO page after UCLA SSO redirect.
+    # Use regex — DUO now uses subdomains like api-xxxx.duosecurity.com so the
+    # glob "**/duosecurity.com/**" (which requires a leading "/") won't match.
     try:
-        page.wait_for_url("**/duosecurity.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
+        page.wait_for_url(re.compile(r'duosecurity\.com'), timeout=config.PAGE_LOAD_TIMEOUT)
     except PwTimeout:
         _screenshot(page, "duo_timeout")
         url = page.url
@@ -128,18 +130,23 @@ def _handle_duo_passcode(page, duo_provider, cb):
         )
     page.wait_for_load_state("domcontentloaded")
 
-    # Click "Send a passcode" — try button role first, then link (DUO renders it as a <button>)
+    # Click the passcode option — label varies by DUO UI version.
+    # New Universal Prompt (frameless): "Use a Passcode" or "Enter a Passcode"
+    # Old prompt: "Send a passcode"
     clicked = False
-    for role in ("button", "link"):
-        try:
-            page.get_by_role(role, name="Send a passcode").first.click(timeout=10000)
-            clicked = True
+    for label in ("Use a Passcode", "Enter a Passcode", "Send a passcode", "Passcode"):
+        for role in ("button", "link"):
+            try:
+                page.get_by_role(role, name=re.compile(label, re.IGNORECASE)).first.click(timeout=8000)
+                clicked = True
+                break
+            except Exception:
+                pass
+        if clicked:
             break
-        except Exception:
-            pass
     if not clicked:
         _screenshot(page, "duo_no_button")
-        raise Exception("Could not find 'Send a passcode' on the DUO page — try again.")
+        raise Exception("Could not find passcode button on the DUO page — try again.")
 
     # duo_provider() blocks until the user submits their code via the web UI
     code = duo_provider()
