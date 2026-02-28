@@ -105,7 +105,9 @@ def sw_js():
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    resp = app.make_response(render_template("index.html"))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/api/buy", methods=["POST"])
