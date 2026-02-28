@@ -145,7 +145,7 @@ def api_buy():
                         message="Enter your 6-digit DUO passcode below")
                 with _jobs_lock:
                     event = _jobs[jid]["duo_event"]
-                event.wait(timeout=120)
+                event.wait(timeout=300)
                 with _jobs_lock:
                     code = _jobs[jid].get("duo_code")
                 _update(jid, status="running", message="DUO code received, continuing...")

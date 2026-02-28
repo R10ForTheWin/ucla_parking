@@ -151,7 +151,7 @@ def _handle_duo_passcode(page, duo_provider, cb):
     # duo_provider() blocks until the user submits their code via the web UI
     code = duo_provider()
     if not code:
-        raise TimeoutError("DUO passcode not received — timed out after 2 minutes.")
+        raise TimeoutError("DUO passcode not received — timed out after 5 minutes.")
 
     # Fill the passcode input and submit
     page.get_by_role("textbox").first.fill(code)
