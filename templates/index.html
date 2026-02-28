@@ -397,9 +397,9 @@
   <div class="center-screen">
     <div class="duo-icon">🔐</div>
     <div class="duo-title">DUO Authentication</div>
-    <div class="duo-sub">Open your DUO app, tap <strong>Send a passcode</strong>, and enter the 6-digit code below.</div>
+    <div class="duo-sub">A text code is on its way — it will appear above your keyboard automatically.</div>
     <div class="duo-input-wrap">
-      <input type="number" id="duo-code" class="duo-input" placeholder="000000"
+      <input type="tel" id="duo-code" class="duo-input" placeholder="000000"
              maxlength="8" inputmode="numeric" pattern="\d{6,8}" autocomplete="one-time-code">
     </div>
     <button class="btn btn-primary result-btn" onclick="submitDuo()">Submit Code</button>
