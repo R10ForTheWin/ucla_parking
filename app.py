@@ -322,7 +322,7 @@ def api_send_push():
 
     from pywebpush import webpush, WebPushException
     vapid_private = os.environ.get('VAPID_PRIVATE_KEY', '').strip()
-    vapid_claims  = {'sub': 'mailto:noreply@example.com'}
+    vapid_claims  = {'sub': 'mailto:djnurre@gmail.com'}
     sent, expired = 0, []
 
     for sub in subs:
