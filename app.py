@@ -245,21 +245,42 @@ def api_job(jid):
 
 import json as _json_mod
 
-_PUSH_SUBS_FILE = '/tmp/push_subs.json'
 _push_lock = threading.Lock()
+
+_GIST_ID    = os.environ.get('GIST_ID', '')
+_GIST_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+_GIST_FILE  = 'push_subs.json'
 
 
 def _load_subs():
+    if not _GIST_ID or not _GIST_TOKEN:
+        return []
     try:
-        with open(_PUSH_SUBS_FILE) as f:
-            return _json_mod.load(f)
+        import urllib.request as _ur
+        req = _ur.Request(
+            f'https://api.github.com/gists/{_GIST_ID}',
+            headers={'Authorization': f'token {_GIST_TOKEN}', 'Accept': 'application/vnd.github+json'},
+        )
+        with _ur.urlopen(req, timeout=10) as r:
+            data = _json_mod.loads(r.read())
+        return _json_mod.loads(data['files'][_GIST_FILE]['content'])
     except Exception:
         return []
 
 
 def _save_subs(subs):
-    with open(_PUSH_SUBS_FILE, 'w') as f:
-        _json_mod.dump(subs, f)
+    if not _GIST_ID or not _GIST_TOKEN:
+        return
+    import urllib.request as _ur
+    payload = _json_mod.dumps({'files': {_GIST_FILE: {'content': _json_mod.dumps(subs)}}}).encode()
+    req = _ur.Request(
+        f'https://api.github.com/gists/{_GIST_ID}',
+        data=payload,
+        headers={'Authorization': f'token {_GIST_TOKEN}', 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'},
+        method='PATCH',
+    )
+    with _ur.urlopen(req, timeout=10) as r:
+        r.read()
 
 
 @app.route('/api/vapid-public-key')
