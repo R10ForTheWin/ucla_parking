@@ -335,9 +335,12 @@ def api_send_push():
             )
             sent += 1
         except WebPushException as ex:
+            status = ex.response.status_code if ex.response else 'no response'
+            app.logger.warning('Push failed [%s]: %s', status, ex)
             if ex.response and ex.response.status_code in (404, 410):
                 expired.append(sub['endpoint'])
-            app.logger.warning('Push failed: %s', ex)
+        except Exception as ex:
+            app.logger.warning('Push unexpected error: %s', ex)
 
     if expired:
         with _push_lock:
