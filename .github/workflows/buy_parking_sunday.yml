@@ -1,13 +1,11 @@
-name: Buy UCLA Parking
+name: Buy UCLA Parking (Sunday EVI)
 
 on:
   schedule:
     # Fire 2 hours early to absorb GitHub Actions cron delays.
     # Script sleeps until exactly 6:00 AM Pacific before sending prompts.
-    # PST (Nov–Mar): 4 AM PST = 12:00 PM UTC
-    - cron: "0 12 * * 5,6"
-    # PDT (Mar–Nov): 4 AM PDT = 11:00 AM UTC
-    - cron: "0 11 * * 5,6"
+    # All EVI dates fall in PDT (Mar–Nov): 4 AM PDT = 11:00 AM UTC
+    - cron: "0 11 * * 0"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -16,13 +14,13 @@ on:
         default: false
 
 concurrency:
-  group: buy-parking
+  group: buy-parking-sunday
   cancel-in-progress: false
 
 jobs:
-  buy-parking:
+  buy-parking-sunday:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -36,35 +34,34 @@ jobs:
         run: |
           pip install requests
 
-      - name: Check if today is a class day
+      - name: Check if today is an EVI class day
         id: datecheck
         run: |
           python -c "
-          import config, datetime, os
+          import datetime, os
           from zoneinfo import ZoneInfo
           pacific = ZoneInfo('America/Los_Angeles')
           now = datetime.datetime.now(pacific)
           today = now.strftime('%Y-%m-%d')
-          current_hour = now.hour
           is_manual = '${{ github.event_name }}' == 'workflow_dispatch'
-          is_class_day = today in config.PARKING_DATES
+          EVI_DATES = {'2026-04-12', '2026-05-10', '2026-05-31'}
+          is_class_day = today in EVI_DATES
 
-          # Deduplicate: two cron triggers cover PST and PDT.
-          # Only proceed if we're within 90 min of the 6 AM target (handles DST edge cases).
+          # Deduplicate: only proceed if within 150 min of 9 AM target.
           target = now.replace(hour=6, minute=0, second=0, microsecond=0)
           minutes_to_target = abs((target - now).total_seconds()) / 60
           if not is_manual and minutes_to_target > 150:
-              print(f'Dedup: {minutes_to_target:.0f} min from 6 AM target. Skipping this cron trigger.')
+              print(f'Dedup: {minutes_to_target:.0f} min from 9 AM target. Skipping.')
               is_class_day = False
 
-          print(f'Today (PT): {today}, hour: {current_hour}, class day: {is_class_day}, manual: {is_manual}')
+          print(f'Today (PT): {today}, hour: {now.hour}, EVI class day: {is_class_day}, manual: {is_manual}')
           if not is_class_day and not is_manual:
-              print('Not a class day. Skipping.')
+              print('Not an EVI class day. Skipping.')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'should_run={\"true\" if (is_class_day or is_manual) else \"false\"}\n')
           "
 
-      - name: Wait until 6:00 AM Pacific
+      - name: Wait until 9:00 AM Pacific
         if: steps.datecheck.outputs.should_run == 'true' && github.event_name != 'workflow_dispatch'
         run: |
           python -c "
@@ -81,7 +78,7 @@ jobs:
           print(f'Ready! Time: {datetime.datetime.now(pacific).strftime(\"%H:%M:%S\")} PT')
           "
 
-      - name: Wake Render and send push notification
+      - name: Wake server and send push notification
         if: steps.datecheck.outputs.should_run == 'true' && github.event.inputs.dry_run != 'true'
         env:
           JUSTIN_URL: ${{ secrets.JUSTIN_URL }}
@@ -93,8 +90,7 @@ jobs:
           url    = os.environ['JUSTIN_URL'].rstrip('/')
           secret = os.environ['PUSH_SECRET']
 
-          # Wake the Render instance (free tier spins down)
-          print('Waking Render server...')
+          print('Waking server...')
           for attempt in range(12):
               try:
                   urllib.request.urlopen(url + '/ping', timeout=10)
@@ -104,12 +100,11 @@ jobs:
                   print(f'  attempt {attempt+1}: {e}')
                   time.sleep(10)
 
-          # Send push notification
           req = urllib.request.Request(
               url + '/api/send-push',
               data=json.dumps({
                   'title': "It's a School Day!",
-                  'body':  'Tap to open Justin and buy parking for today. (If you are taking AI for Managers elective)'
+                  'body':  'Tap to open Justin and buy parking for today. (If you are taking EVI elective)'
               }).encode(),
               headers={'Content-Type': 'application/json', 'X-Push-Secret': secret},
               method='POST',
