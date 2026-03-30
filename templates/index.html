@@ -526,6 +526,14 @@ const PARKING_DATES = new Set([
   "2027-05-29","2027-06-11",
 ]);
 
+const AI_MANAGERS_DATES = new Set([
+  "2026-04-01","2026-04-08","2026-04-15","2026-04-22","2026-04-29",
+]);
+
+const EVI_DATES = new Set([
+  "2026-04-12","2026-05-10","2026-05-31",
+]);
+
 // ── State ──────────────────────────────────────────────────────────────────
 let currentJobId      = null;
 let selectedStructure = STRUCTURE_4;
@@ -644,16 +652,22 @@ function updateNextDayCard() {
 
   const formatted = u.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
+  const classNote = AI_MANAGERS_DATES.has(upcoming)
+    ? ' · AI for Managers'
+    : EVI_DATES.has(upcoming)
+    ? ' · EVI elective'
+    : '';
+
   if (daysAway === 0) {
     labelEl.textContent  = 'Today is a School Day';
-    dateEl.textContent   = formatted;
+    dateEl.textContent   = formatted + classNote;
     subEl.textContent    = 'Notification sent at 6:00 AM';
     countEl.textContent  = '🎓';
     countLbl.textContent = 'today';
     if (iconEl) iconEl.textContent = '🎉';
   } else {
     labelEl.textContent  = 'Next School Day';
-    dateEl.textContent   = formatted;
+    dateEl.textContent   = formatted + classNote;
     subEl.textContent    = 'Notification at 6:00 AM';
     countEl.textContent  = daysAway;
     countLbl.textContent = daysAway === 1 ? 'day' : 'days';
