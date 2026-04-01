@@ -133,6 +133,12 @@ def _handle_duo(page, method, duo_provider, cb):
         )
     page.wait_for_load_state("networkidle")
 
+    # Duo sometimes auto-approves (remembered session) and redirects before we
+    # can interact with it. If we're already on bruinepermit, skip Duo entirely.
+    if "bruinepermit.t2hosted.com" in page.url:
+        cb("DUO verified!")
+        return
+
     # UCLA's Duo Universal Prompt hides auth methods behind "Other options".
     # Click it if present (safe to try regardless of method).
     try:
@@ -144,6 +150,11 @@ def _handle_duo(page, method, duo_provider, cb):
             page.wait_for_load_state("networkidle")
         except Exception:
             pass
+
+    # If "Other options" itself redirected us to bruinepermit, skip remaining Duo steps.
+    if "bruinepermit.t2hosted.com" in page.url:
+        cb("DUO verified!")
+        return
 
     # Log available buttons (temporary — helps diagnose label mismatches)
     try:
