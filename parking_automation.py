@@ -229,8 +229,8 @@ def _handle_duo(page, method, duo_provider, cb):
 
 
 def _find_permit_radio(page):
-    # Try accessible name first
-    for pattern in ["Yellow / 1-Day Student", "1-Day Student", "1-Day", "Yellow"]:
+    # Try accessible name first (avoid "/" in patterns — breaks CSS selector parsing)
+    for pattern in ["1-Day Student", "1-Day", "Yellow"]:
         radio = page.get_by_role("radio", name=re.compile(pattern, re.IGNORECASE))
         if radio.count() > 0:
             return radio
