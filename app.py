@@ -158,8 +158,12 @@ def api_buy():
     username  = data.get("username",  "").strip()
     password  = data.get("password",  "").strip()
     structure = data.get("structure", "").strip()
+    duo_method   = data.get("duo_method", "push").strip()
     dry_run      = bool(data.get("dry_run", False))
     real_dry_run = bool(data.get("real_dry_run", False))
+
+    if duo_method not in ("push", "passcode"):
+        duo_method = "push"
 
     if not all([username, password, structure]):
         return jsonify({"error": "Missing required fields"}), 400
@@ -183,21 +187,30 @@ def api_buy():
             from parking_automation import run_purchase
 
             def duo_provider():
-                """Pause automation and wait for user to submit DUO code via web UI."""
-                _update(jid, status="awaiting_duo",
-                        message="Enter your 6-digit DUO passcode below")
-                with _jobs_lock:
-                    event = _jobs[jid]["duo_event"]
-                event.wait(timeout=300)
-                with _jobs_lock:
-                    code = _jobs[jid].get("duo_code")
-                _update(jid, status="running", message="DUO code received, continuing...")
-                return code
+                """Notify UI of DUO state.
+                Push: non-blocking — just shows 'check your phone' screen.
+                Passcode: blocks until user submits their code via the web UI.
+                """
+                if duo_method == "push":
+                    _update(jid, status="awaiting_duo_push",
+                            message="Check your phone and tap Approve in the Duo Mobile app")
+                    return None
+                else:
+                    _update(jid, status="awaiting_duo",
+                            message="Enter your 6-digit DUO passcode below")
+                    with _jobs_lock:
+                        event = _jobs[jid]["duo_event"]
+                    event.wait(timeout=300)
+                    with _jobs_lock:
+                        code = _jobs[jid].get("duo_code")
+                    _update(jid, status="running", message="DUO code received, continuing...")
+                    return code
 
             result = run_purchase(
                 username, password, structure,
                 callback=lambda m: _update(jid, message=m),
                 duo_provider=duo_provider,
+                duo_method=duo_method,
                 dry_run=dry_run,
                 real_dry_run=real_dry_run,
             )

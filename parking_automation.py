@@ -94,9 +94,12 @@ def _wait_for_queue_it(page, cb):
     raise TimeoutError("Stuck in Queue-it waiting room — try again in a moment.")
 
 
-def _handle_duo_passcode(page, duo_provider, cb):
-    """Wait for DUO Universal Prompt full-page redirect, click 'Send a passcode',
-    collect the code from the user, then submit it."""
+def _handle_duo(page, method, duo_provider, cb):
+    """Wait for DUO Universal Prompt, then authenticate via push or passcode.
+
+    method: "push" — sends a Duo Push to the user's phone (tap Approve).
+            "passcode" — clicks Send Passcode and waits for user to enter the code.
+    """
     cb("DUO authentication required...")
 
     # Wait for the browser to land on the DUO page after UCLA SSO redirect.
@@ -130,6 +133,31 @@ def _handle_duo_passcode(page, duo_provider, cb):
         )
     page.wait_for_load_state("networkidle")
 
+    if method == "push":
+        clicked = False
+        for label in ("Send me a Push", "Duo Push", "Push Notification", "Push"):
+            for role in ("button", "link"):
+                try:
+                    page.get_by_role(role, name=re.compile(label, re.IGNORECASE)).first.click(timeout=8000)
+                    clicked = True
+                    break
+                except Exception:
+                    pass
+            if clicked:
+                break
+        if not clicked:
+            # Push not available on this Duo prompt — fall back to passcode
+            cb("Duo Push not available — switching to passcode...")
+            method = "passcode"
+        else:
+            # Notify the UI (non-blocking — just shows "check your phone" screen)
+            duo_provider()
+            # Wait for Duo to redirect back after user taps Approve on their phone
+            page.wait_for_url("**/bruinepermit.t2hosted.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
+            cb("DUO verified!")
+            return
+
+    # ── Passcode flow ──────────────────────────────────────────────────────
     # Click the passcode option — label varies by DUO UI version.
     # New Universal Prompt (frameless): "Use a Passcode" or "Enter a Passcode"
     # Old prompt: "Send a passcode"
@@ -201,7 +229,7 @@ def _verify_purchase_success(page):
         return None
 
 
-def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=False):
+def _do_purchase(page, username, password, structure, cb, duo_provider, duo_method="push", dry_run=False):
     # Step 1: Navigate
     cb("Opening the UCLA parking site...")
     page.goto(
@@ -267,7 +295,7 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=
     _screenshot(page, "after_sign_in")
 
     # Step 4: DUO 2FA
-    _handle_duo_passcode(page, duo_provider, cb)
+    _handle_duo(page, duo_method, duo_provider, cb)
     cb("Navigating to permits...")
 
     # Step 5: Handle orphaned cart if present
@@ -381,7 +409,7 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=
     raise Exception("No purchase confirmation found on page — check manually: https://bruinepermit.t2hosted.com")
 
 
-def run_purchase(username, password, structure, callback, duo_provider, dry_run=False, real_dry_run=False):
+def run_purchase(username, password, structure, callback, duo_provider, duo_method="push", dry_run=False, real_dry_run=False):
     """Run the full purchase flow for one user, with retries.
 
     dry_run=True      — mock flow, no browser, just tests the web UI state machine.
@@ -448,7 +476,7 @@ def run_purchase(username, password, structure, callback, duo_provider, dry_run=
             try:
                 result = _do_purchase(
                     page, username, password, structure,
-                    cb, duo_provider, dry_run=(dry_run or real_dry_run),
+                    cb, duo_provider, duo_method=duo_method, dry_run=(dry_run or real_dry_run),
                 )
                 _screenshot(page, "success")
                 return result

@@ -431,6 +431,13 @@
       </div>
       <div class="divider"></div>
 
+      <div class="confirm-label" style="margin-bottom:10px">DUO Method</div>
+      <div class="toggle-row" style="margin-bottom:0">
+        <button class="toggle-btn" id="duo-push-btn" onclick="selectDuoMethod('push')">Duo Push</button>
+        <button class="toggle-btn" id="duo-passcode-btn" onclick="selectDuoMethod('passcode')">Passcode</button>
+      </div>
+      <div class="divider"></div>
+
       <div class="price-row">
         <div>
           <div class="confirm-label">Total Due</div>
@@ -468,6 +475,15 @@
     </div>
     <button class="btn btn-primary result-btn" onclick="submitDuo()">Submit Code</button>
     <div id="duo-err" class="error-inline" style="display:none"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ DUO PUSH -->
+<div class="screen" id="screen-duo-push">
+  <div class="center-screen">
+    <div class="duo-icon">📱</div>
+    <div class="duo-title">Check Your Phone</div>
+    <div class="duo-sub">Tap <strong>Approve</strong> in the Duo Mobile app to continue.</div>
   </div>
 </div>
 
@@ -699,6 +715,7 @@ function startBuy() {
   // Default to P4
   selectedStructure = STRUCTURE_4;
   selectConfirmStructure('p4');
+  selectDuoMethod(selectedDuoMethod);
 
   show('confirm');
 }
@@ -707,6 +724,15 @@ function selectConfirmStructure(val) {
   selectedStructure = val === 'p7' ? STRUCTURE_P7 : STRUCTURE_4;
   document.getElementById('confirm-p4-btn').classList.toggle('selected', val === 'p4');
   document.getElementById('confirm-p7-btn').classList.toggle('selected', val === 'p7');
+}
+
+let selectedDuoMethod = localStorage.getItem('duoMethod') || 'push';
+
+function selectDuoMethod(val) {
+  selectedDuoMethod = val;
+  localStorage.setItem('duoMethod', val);
+  document.getElementById('duo-push-btn').classList.toggle('selected', val === 'push');
+  document.getElementById('duo-passcode-btn').classList.toggle('selected', val === 'passcode');
 }
 
 // ── Buy flow ───────────────────────────────────────────────────────────────
@@ -722,9 +748,10 @@ async function doRegister() {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        username:  p.username,
-        password:  p.password,
-        structure: selectedStructure,
+        username:   p.username,
+        password:   p.password,
+        structure:  selectedStructure,
+        duo_method: selectedDuoMethod,
         real_dry_run: document.getElementById('dry-run-toggle').checked,
       }),
     });
@@ -747,7 +774,8 @@ function showError(msg) {
   }
   document.getElementById('error-title').textContent    = soldOut ? 'Cry Me A River' : 'Something went wrong';
   document.getElementById('error-msg').textContent      = msg;
-  document.getElementById('error-btn').style.display    = soldOut ? 'none' : '';
+  document.getElementById('error-btn').textContent      = soldOut ? 'Go Back' : 'Try Again';
+  document.getElementById('error-btn').style.display    = '';
   show('error');
 }
 
@@ -778,6 +806,14 @@ async function pollJob(jobId) {
           setTimeout(() => document.getElementById('duo-code').focus(), 300);
         }
         continue; // keep polling so we catch when it resumes
+      }
+
+      if (job.status === 'awaiting_duo_push') {
+        if (!onDuoScreen) {
+          onDuoScreen = true;
+          show('duo-push');
+        }
+        continue;
       }
 
       // If we were on DUO screen and status changed, go back to loading
