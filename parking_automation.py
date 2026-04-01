@@ -328,6 +328,14 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
     _handle_duo(page, duo_method, duo_provider, cb)
     cb("Navigating to permits...")
 
+    # If Duo auto-approved and landed us back at the portal, navigate to permits directly
+    if "bruinepermit.t2hosted.com/Account/Portal" in page.url:
+        page.goto(
+            "https://bruinepermit.t2hosted.com/per/index.aspx",
+            timeout=config.PAGE_LOAD_TIMEOUT,
+            wait_until="domcontentloaded",
+        )
+
     # Step 5: Handle orphaned cart if present
     try:
         body = page.inner_text("body")
