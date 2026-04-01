@@ -430,7 +430,7 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
         return "dry_run"
 
     # Step 9: Process transaction
-    cb("Processing transaction...")
+    cb("Processing transaction — this can take up to 30 seconds...")
     page.get_by_role("button", name="Process Transaction").click()
 
     result = _verify_purchase_success(page)
