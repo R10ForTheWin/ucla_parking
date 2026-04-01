@@ -328,20 +328,34 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
     _handle_duo(page, duo_method, duo_provider, cb)
     cb("Navigating to permits...")
 
-    # If Duo auto-approved and landed us back at the portal, re-run the permits
-    # flow entry: Get Permits → UCLA Logon. Since we're already authenticated,
-    # UCLA SSO will skip the login page and redirect straight to per/index.aspx.
+    print(f"[JUSTIN POST-DUO] URL: {page.url}", flush=True)
+
+    # If Duo auto-approved and landed us back at the portal, try the nav link
+    # "Get Permits" which (when authenticated) goes directly to per/index.aspx.
     if "bruinepermit.t2hosted.com/Account/Portal" in page.url:
-        for btn_text in ["Get Permits", "Buy Permits", "Purchase Permits", "Permits"]:
-            try:
-                page.get_by_role("button", name=re.compile(btn_text, re.IGNORECASE)).click(timeout=5000)
+        # Try navigation link first (authenticated nav), then button, then UCLA Logon
+        nav_clicked = False
+        for role in ("link", "button"):
+            for label in ("Get Permits", "Buy Permits", "Permits"):
+                try:
+                    page.get_by_role(role, name=re.compile(label, re.IGNORECASE)).first.click(timeout=5000)
+                    nav_clicked = True
+                    break
+                except Exception:
+                    pass
+            if nav_clicked:
                 break
-            except Exception:
-                pass
-        try:
-            page.get_by_role("button", name="UCLA Logon").click(timeout=8000)
-        except Exception:
-            pass
+        page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+        print(f"[JUSTIN POST-GETPERMITS] URL: {page.url}", flush=True)
+
+        # If still on portal or went to UCLA SSO, try UCLA Logon
+        if "Account/Portal" in page.url or "shb.ais.ucla.edu" in page.url or "sso.ucla.edu" in page.url:
+            try:
+                page.get_by_role("button", name="UCLA Logon").click(timeout=8000)
+                page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+                print(f"[JUSTIN POST-UCLALOGON] URL: {page.url}", flush=True)
+            except Exception as e:
+                print(f"[JUSTIN POST-UCLALOGON] UCLA Logon click failed: {e}", flush=True)
 
     # Step 5: Handle orphaned cart if present
     try:
