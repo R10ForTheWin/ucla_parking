@@ -359,7 +359,8 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=
             cb(f"{sold_out_name} is sold out — automatically switching to {alt_name}...")
             structure = alt_structure
         else:
-            raise Exception("Both P4 and P7 are sold out — parking is not available today.")
+            options_str = ", ".join(f"{o['text']}={o['value']}(disabled={o['disabled']})" for o in available_options)
+            raise Exception(f"Both P4 and P7 are sold out — parking is not available today. Raw options: {options_str}")
 
     dropdown.select_option(structure)
     page.get_by_role("button", name="Next >>").click()
