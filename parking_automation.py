@@ -330,32 +330,17 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
 
     print(f"[JUSTIN POST-DUO] URL: {page.url}", flush=True)
 
-    # If Duo auto-approved and landed us back at the portal, try the nav link
-    # "Get Permits" which (when authenticated) goes directly to per/index.aspx.
-    if "bruinepermit.t2hosted.com/Account/Portal" in page.url:
-        # Try navigation link first (authenticated nav), then button, then UCLA Logon
-        nav_clicked = False
-        for role in ("link", "button"):
-            for label in ("Get Permits", "Buy Permits", "Permits"):
-                try:
-                    page.get_by_role(role, name=re.compile(label, re.IGNORECASE)).first.click(timeout=5000)
-                    nav_clicked = True
-                    break
-                except Exception:
-                    pass
-            if nav_clicked:
-                break
-        page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
-        print(f"[JUSTIN POST-GETPERMITS] URL: {page.url}", flush=True)
-
-        # If still on portal or went to UCLA SSO, try UCLA Logon
-        if "Account/Portal" in page.url or "shb.ais.ucla.edu" in page.url or "sso.ucla.edu" in page.url:
-            try:
-                page.get_by_role("button", name="UCLA Logon").click(timeout=8000)
-                page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
-                print(f"[JUSTIN POST-UCLALOGON] URL: {page.url}", flush=True)
-            except Exception as e:
-                print(f"[JUSTIN POST-UCLALOGON] UCLA Logon click failed: {e}", flush=True)
+    # If we landed somewhere on bruinepermit other than the permits flow,
+    # navigate directly to per/index.aspx. The session is established at this
+    # point so direct navigation works (unlike before authentication).
+    if "bruinepermit.t2hosted.com" in page.url and "per/index.aspx" not in page.url:
+        print(f"[JUSTIN] Navigating directly to per/index.aspx from {page.url}", flush=True)
+        page.goto(
+            "https://bruinepermit.t2hosted.com/per/index.aspx",
+            timeout=config.PAGE_LOAD_TIMEOUT,
+            wait_until="domcontentloaded",
+        )
+        print(f"[JUSTIN POST-GOTO] URL: {page.url}", flush=True)
 
     # Step 5: Handle orphaned cart if present
     try:
