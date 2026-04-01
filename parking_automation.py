@@ -328,13 +328,16 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
     _handle_duo(page, duo_method, duo_provider, cb)
     cb("Navigating to permits...")
 
-    # If Duo auto-approved and landed us back at the portal, navigate to permits directly
+    # If Duo auto-approved and landed us back at the portal, re-click "Get Permits".
+    # Direct navigation to per/index.aspx doesn't work — bruinepermit requires the
+    # permits flow to be initiated via the button to establish the session.
     if "bruinepermit.t2hosted.com/Account/Portal" in page.url:
-        page.goto(
-            "https://bruinepermit.t2hosted.com/per/index.aspx",
-            timeout=config.PAGE_LOAD_TIMEOUT,
-            wait_until="domcontentloaded",
-        )
+        for btn_text in ["Get Permits", "Buy Permits", "Purchase Permits", "Permits"]:
+            try:
+                page.get_by_role("button", name=re.compile(btn_text, re.IGNORECASE)).click(timeout=5000)
+                break
+            except Exception:
+                pass
 
     # Step 5: Handle orphaned cart if present
     try:
