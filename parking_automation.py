@@ -337,6 +337,8 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, dry_run=
         "el => Array.from(el.options).map(o => ({value: o.value, text: o.text, disabled: o.disabled}))"
     )
 
+    print(f"[JUSTIN DROPDOWN] Available options: {available_options}", flush=True)
+
     selected_available = any(
         o["value"] == structure and not o.get("disabled", False)
         for o in available_options
