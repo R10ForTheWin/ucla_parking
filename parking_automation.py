@@ -133,31 +133,26 @@ def _handle_duo(page, method, duo_provider, cb):
         )
     page.wait_for_load_state("networkidle")
 
+    # UCLA's Duo Universal Prompt hides auth methods behind "Other options".
+    # Click it if present (safe to try regardless of method).
+    try:
+        page.get_by_role("button", name=re.compile("other options", re.IGNORECASE)).first.click(timeout=5000)
+        page.wait_for_load_state("networkidle")
+    except Exception:
+        try:
+            page.get_by_role("link", name=re.compile("other options", re.IGNORECASE)).first.click(timeout=5000)
+            page.wait_for_load_state("networkidle")
+        except Exception:
+            pass
+
+    # Log available buttons (temporary — helps diagnose label mismatches)
+    try:
+        btns = page.evaluate("() => Array.from(document.querySelectorAll('button,a,[role=button],[role=link]')).map(e => e.innerText.trim()).filter(t => t)")
+        print(f"[JUSTIN DUO] Buttons/links after expand: {btns}", flush=True)
+    except Exception:
+        pass
+
     if method == "push":
-        # Log all buttons and links on the Duo page to identify the correct label
-        try:
-            btns = page.evaluate("() => Array.from(document.querySelectorAll('button,a,[role=button],[role=link]')).map(e => e.innerText.trim()).filter(t => t)")
-            print(f"[JUSTIN DUO] Buttons/links on page: {btns}", flush=True)
-        except Exception:
-            pass
-
-        # UCLA's Duo Universal Prompt hides methods behind "Other options" first
-        for expand_label in ("Other options",):
-            for role in ("button", "link"):
-                try:
-                    page.get_by_role(role, name=re.compile(expand_label, re.IGNORECASE)).first.click(timeout=8000)
-                    page.wait_for_load_state("networkidle")
-                    break
-                except Exception:
-                    pass
-
-        # Log available buttons after expanding
-        try:
-            btns = page.evaluate("() => Array.from(document.querySelectorAll('button,a,[role=button],[role=link]')).map(e => e.innerText.trim()).filter(t => t)")
-            print(f"[JUSTIN DUO] Buttons/links after expand: {btns}", flush=True)
-        except Exception:
-            pass
-
         clicked = False
         for label in ("Duo Push", "Send me a Push", "Push Notification", "Push"):
             for role in ("button", "link"):
