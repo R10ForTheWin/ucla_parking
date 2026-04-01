@@ -141,8 +141,25 @@ def _handle_duo(page, method, duo_provider, cb):
         except Exception:
             pass
 
+        # UCLA's Duo Universal Prompt hides methods behind "Other options" first
+        for expand_label in ("Other options",):
+            for role in ("button", "link"):
+                try:
+                    page.get_by_role(role, name=re.compile(expand_label, re.IGNORECASE)).first.click(timeout=8000)
+                    page.wait_for_load_state("networkidle")
+                    break
+                except Exception:
+                    pass
+
+        # Log available buttons after expanding
+        try:
+            btns = page.evaluate("() => Array.from(document.querySelectorAll('button,a,[role=button],[role=link]')).map(e => e.innerText.trim()).filter(t => t)")
+            print(f"[JUSTIN DUO] Buttons/links after expand: {btns}", flush=True)
+        except Exception:
+            pass
+
         clicked = False
-        for label in ("Send me a Push", "Duo Push", "Push Notification", "Push", "Other options", "Use Duo Push"):
+        for label in ("Duo Push", "Send me a Push", "Push Notification", "Push"):
             for role in ("button", "link"):
                 try:
                     page.get_by_role(role, name=re.compile(label, re.IGNORECASE)).first.click(timeout=8000)
@@ -153,7 +170,7 @@ def _handle_duo(page, method, duo_provider, cb):
             if clicked:
                 break
         if not clicked:
-            # Push not available on this Duo prompt — fall back to passcode
+            # Push not available — fall back to passcode
             cb("Duo Push not available — switching to passcode...")
             method = "passcode"
         else:
