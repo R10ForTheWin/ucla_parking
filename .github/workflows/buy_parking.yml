@@ -5,9 +5,9 @@ on:
     # Fire 2 hours early to absorb GitHub Actions cron delays.
     # Script sleeps until exactly 6:00 AM Pacific before sending prompts.
     # PST (Nov–Mar): 4 AM PST = 12:00 PM UTC
-    - cron: "0 12 * * 5,6"
+    - cron: "0 12 * * 3,5,6"
     # PDT (Mar–Nov): 4 AM PDT = 11:00 AM UTC
-    - cron: "0 11 * * 5,6"
+    - cron: "0 11 * * 3,5,6"
   workflow_dispatch:
     inputs:
       dry_run:
