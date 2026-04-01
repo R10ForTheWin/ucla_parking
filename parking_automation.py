@@ -229,16 +229,38 @@ def _handle_duo(page, method, duo_provider, cb):
 
 
 def _find_permit_radio(page):
-    radio = page.get_by_role("radio", name="Yellow / 1-Day Student")
-    if radio.count() > 0:
-        return radio
-    for pattern in ["1-Day Student", "1-Day", "Yellow"]:
+    # Try accessible name first
+    for pattern in ["Yellow / 1-Day Student", "1-Day Student", "1-Day", "Yellow"]:
         radio = page.get_by_role("radio", name=re.compile(pattern, re.IGNORECASE))
         if radio.count() > 0:
             return radio
+
+    # Try matching via associated <label> text (bruinepermit uses label-for associations)
     all_radios = page.get_by_role("radio").all()
-    names = [r.get_attribute("aria-label") or r.inner_text() for r in all_radios]
-    raise Exception(f"Could not find 1-Day Student permit. Available: {names}")
+    for radio in all_radios:
+        radio_id = radio.get_attribute("id") or ""
+        if radio_id:
+            label = page.locator(f"label[for='{radio_id}']")
+            if label.count() > 0:
+                label_text = label.first.inner_text()
+                print(f"[JUSTIN PERMIT] Radio id={radio_id} label={label_text!r}", flush=True)
+                for pattern in ["1-day student", "1-day", "yellow"]:
+                    if pattern in label_text.lower():
+                        return radio
+
+    # Log all radio info for diagnosis and fall back to first radio
+    info = []
+    for radio in all_radios:
+        rid = radio.get_attribute("id") or ""
+        label = page.locator(f"label[for='{rid}']").first.inner_text() if rid else ""
+        info.append(f"id={rid} label={label!r}")
+    print(f"[JUSTIN PERMIT] All radios: {info}", flush=True)
+
+    if all_radios:
+        print("[JUSTIN PERMIT] Falling back to first radio", flush=True)
+        return page.get_by_role("radio").first
+
+    raise Exception(f"Could not find any permit radio buttons on the page.")
 
 
 def _verify_purchase_success(page):
