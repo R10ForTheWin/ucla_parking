@@ -660,6 +660,108 @@ def _do_purchase_cached(page, structure, cb, dry_run=False):
     return _run_permit_steps(page, structure, cb, dry_run)
 
 
+# ── Network capture (API discovery) ──────────────────────────────────────────
+#
+# Every request/response to bruinepermit.t2hosted.com is logged so we can
+# eventually replace browser automation with direct HTTP calls (Reggie-style).
+# Captured traffic is written to screenshots/api_capture.json after each run.
+# View it at /api/screenshot/api_capture  (served as JSON, not image — rename
+# the endpoint if you want, but the file lives in the screenshots dir for now).
+
+_api_capture = []          # list of {method, url, post_data, status, body}
+_api_capture_lock = __import__("threading").Lock()
+
+_API_CAPTURE_FILE = os.path.join(config.SCREENSHOT_DIR, "api_capture.json")
+
+# Fields that may contain sensitive values — redact from logged request bodies
+_REDACT_FIELDS = {"password", "pass", "pwd", "token", "secret", "credential"}
+
+
+def _redact(obj, depth=0):
+    """Recursively redact sensitive keys from a dict/list for safe logging."""
+    if depth > 5:
+        return obj
+    if isinstance(obj, dict):
+        return {
+            k: "***REDACTED***" if k.lower() in _REDACT_FIELDS else _redact(v, depth + 1)
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_redact(i, depth + 1) for i in obj]
+    return obj
+
+
+def _attach_capture(page):
+    """Attach request/response listeners that log bruinepermit traffic."""
+
+    def on_request(req):
+        if "bruinepermit.t2hosted.com" not in req.url:
+            return
+        try:
+            post_raw = req.post_data
+            post_safe = None
+            if post_raw:
+                try:
+                    post_safe = _redact(_json.loads(post_raw))
+                except Exception:
+                    post_safe = post_raw[:500]   # not JSON — log raw (truncated)
+            entry = {
+                "type": "request",
+                "method": req.method,
+                "url": req.url,
+                "post_data": post_safe,
+            }
+            with _api_capture_lock:
+                _api_capture.append(entry)
+            print(f"[JUSTIN API] ► {req.method} {req.url}", flush=True)
+            if post_safe:
+                print(f"[JUSTIN API]   body: {_json.dumps(post_safe)[:300]}", flush=True)
+        except Exception:
+            pass
+
+    def on_response(resp):
+        if "bruinepermit.t2hosted.com" not in resp.url:
+            return
+        try:
+            body = None
+            content_type = resp.headers.get("content-type", "")
+            if "json" in content_type or "javascript" in content_type:
+                try:
+                    body = _redact(resp.json())
+                except Exception:
+                    try:
+                        body = resp.text()[:500]
+                    except Exception:
+                        pass
+            entry = {
+                "type": "response",
+                "status": resp.status,
+                "url": resp.url,
+                "body": body,
+            }
+            with _api_capture_lock:
+                _api_capture.append(entry)
+            print(f"[JUSTIN API] ◄ {resp.status} {resp.url}", flush=True)
+        except Exception:
+            pass
+
+    page.on("request", on_request)
+    page.on("response", on_response)
+
+
+def _save_capture():
+    """Write captured traffic to disk after a run."""
+    try:
+        _ensure_screenshot_dir()
+        with _api_capture_lock:
+            data = list(_api_capture)
+        with open(_API_CAPTURE_FILE, "w") as f:
+            _json.dump(data, f, indent=2)
+        print(f"[JUSTIN API] Capture saved: {len(data)} entries → {_API_CAPTURE_FILE}", flush=True)
+    except Exception as e:
+        print(f"[JUSTIN API] Capture save failed: {e}", flush=True)
+
+
 # ── Browser / context setup ───────────────────────────────────────────────────
 
 def _make_context(browser, storage_state=None):
@@ -690,6 +792,7 @@ def _setup_page(context):
     page.route("**/*", lambda route: route.abort()
         if route.request.resource_type in ("image", "media")
         else route.continue_())
+    _attach_capture(page)   # start logging bruinepermit traffic
     return page
 
 
@@ -726,6 +829,10 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
 
     actual_dry_run = dry_run or real_dry_run
 
+    # Clear capture log for this run
+    with _api_capture_lock:
+        _api_capture.clear()
+
     # ── Fast path: try cached session (skip login + Duo) ──────────────────
     cached_session = _load_session(username)
     if cached_session:
@@ -739,12 +846,13 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
                 print(f"[JUSTIN CACHE] Fast path succeeded!", flush=True)
                 return result
             except BruinBillUnavailable:
-                raise   # propagate immediately — no point retrying
+                raise
             except Exception as e:
                 print(f"[JUSTIN CACHE] Fast path failed: {e} — clearing cache, retrying with full login", flush=True)
                 _clear_session(username)
                 _screenshot(page, "cache_miss")
             finally:
+                _save_capture()
                 browser.close()
 
     # ── Full path: login + Duo + save session for next time ───────────────
@@ -763,7 +871,7 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
                 result = _do_purchase_full(
                     page, context, username, password, structure,
                     cb, duo_provider, duo_method=duo_method, dry_run=actual_dry_run,
-                    save_session_for=username,   # saves session after Duo succeeds
+                    save_session_for=username,
                 )
                 _screenshot(page, "success")
                 return result
@@ -785,6 +893,7 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
                     cb(f"Hit an issue (attempt {attempt}/{config.MAX_RETRIES}) — retrying...")
 
             finally:
+                _save_capture()
                 browser.close()
 
     raise Exception(str(last_error) or "Purchase failed after all retry attempts.")

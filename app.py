@@ -139,15 +139,21 @@ def ping():
 
 @app.route("/api/screenshot/<name>")
 def api_screenshot(name):
-    """Serve a debug screenshot by name (e.g. 'duo_timeout', 'after_sign_in')."""
+    """Serve a debug screenshot (PNG) or api_capture (JSON) by name."""
     import re as _re2
     if not _re2.match(r'^[\w\-]+$', name):
         return "Invalid name", 400
     import os as _os
+    from flask import send_file
+    # Special case: api_capture is JSON not PNG
+    if name == "api_capture":
+        path = _os.path.join(config.SCREENSHOT_DIR, "api_capture.json")
+        if not _os.path.exists(path):
+            return "Not captured yet — run the bot first", 404
+        return send_file(path, mimetype="application/json")
     path = _os.path.join(config.SCREENSHOT_DIR, f"{name}.png")
     if not _os.path.exists(path):
         return "Not found", 404
-    from flask import send_file
     return send_file(path, mimetype="image/png")
 
 
