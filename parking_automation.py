@@ -95,29 +95,35 @@ def _wait_for_queue_it(page, cb):
 
 
 def _handle_duo(page, method, duo_provider, cb):
-    """Wait for DUO Universal Prompt, then authenticate via push or passcode.
+    """Wait for DUO, then authenticate via push or passcode.
 
-    method: "push" — sends a Duo Push to the user's phone (tap Approve).
-            "passcode" — clicks Send Passcode and waits for user to enter the code.
+    UCLA SSO has two Duo integration modes:
+    - Universal Prompt: browser redirects to duosecurity.com (standalone page)
+    - Classic (Shibboleth-embedded): Duo iframe on shb.ais.ucla.edu (no redirect)
+
+    method: "push"     — Duo Push to phone (tap Approve)
+            "passcode" — enter 6-digit code
     """
     cb("DUO authentication required...")
 
-    # Wait for the browser to land on the DUO page after UCLA SSO redirect.
-    # Use regex — DUO now uses subdomains like api-xxxx.duosecurity.com so the
-    # glob "**/duosecurity.com/**" (which requires a leading "/") won't match.
+    # Wait up to 30 s for a redirect to duosecurity.com (Universal Prompt).
+    # If the redirect doesn't happen, Duo may be embedded as an iframe on the
+    # current Shibboleth page (classic integration on shb.ais.ucla.edu).
+    loc = page   # element interaction target; may be replaced by a FrameLocator
     try:
-        page.wait_for_url(re.compile(r'duosecurity\.com'), timeout=config.PAGE_LOAD_TIMEOUT)
+        page.wait_for_url(re.compile(r'duosecurity\.com'), timeout=30000)
+        print(f"[JUSTIN DUO] Redirected to Duo standalone page", flush=True)
     except PwTimeout:
-        _screenshot(page, "duo_timeout")
         url = page.url
         body_text = ""
         try:
-            print(f"[JUSTIN DUO] Timeout. URL: {url}", flush=True)
             body_text = page.inner_text("body")
-            print(f"[JUSTIN DUO] Body:\n{body_text[:800]}", flush=True)
         except Exception:
             pass
-        # Detect wrong credentials — SSO bounces back to login with an error
+        print(f"[JUSTIN DUO] No redirect after 30s. URL: {url}", flush=True)
+        print(f"[JUSTIN DUO] Body:\n{body_text[:800]}", flush=True)
+
+        # Detect wrong credentials first
         body_lower = body_text.lower()
         if any(p in body_lower for p in [
             "incorrect", "invalid", "login failed",
@@ -127,38 +133,56 @@ def _handle_duo(page, method, duo_provider, cb):
                 "UCLA login failed — wrong username or password. "
                 "Go to Setup and double-check your credentials."
             )
-        raise Exception(
-            f"DUO page did not load (still on {url}). "
-            "Check your UCLA credentials and try again."
-        )
+
+        # Check for embedded Duo iframe (classic Shibboleth-Duo integration)
+        iframe_found = False
+        for iframe_sel in [
+            "iframe#duo_iframe",
+            "iframe[id*='duo']",
+            "iframe[src*='duosecurity']",
+            "iframe[title*='Two-Factor']",
+            "iframe[title*='Duo']",
+        ]:
+            if page.locator(iframe_sel).count() > 0:
+                print(f"[JUSTIN DUO] Found embedded Duo iframe: {iframe_sel}", flush=True)
+                loc = page.frame_locator(iframe_sel)
+                iframe_found = True
+                break
+
+        if not iframe_found:
+            _screenshot(page, "duo_timeout")
+            raise Exception(
+                f"DUO page did not load (still on {url}). "
+                "Check your UCLA credentials and try again."
+            )
+
     page.wait_for_load_state("networkidle")
 
-    # Duo sometimes auto-approves (remembered session) and redirects before we
-    # can interact with it. If we're already on bruinepermit, skip Duo entirely.
+    # Duo sometimes auto-approves (remembered session) — already on bruinepermit
     if "bruinepermit.t2hosted.com" in page.url:
         cb("DUO verified!")
         return
 
     # UCLA's Duo Universal Prompt hides auth methods behind "Other options".
     # Click it if present (safe to try regardless of method).
-    try:
-        page.get_by_role("button", name=re.compile("other options", re.IGNORECASE)).first.click(timeout=5000)
-        page.wait_for_load_state("networkidle")
-    except Exception:
+    for role in ("button", "link"):
         try:
-            page.get_by_role("link", name=re.compile("other options", re.IGNORECASE)).first.click(timeout=5000)
+            loc.get_by_role(role, name=re.compile("other options", re.IGNORECASE)).first.click(timeout=5000)
             page.wait_for_load_state("networkidle")
+            break
         except Exception:
             pass
 
-    # If "Other options" itself redirected us to bruinepermit, skip remaining Duo steps.
     if "bruinepermit.t2hosted.com" in page.url:
         cb("DUO verified!")
         return
 
-    # Log available buttons (temporary — helps diagnose label mismatches)
+    # Log available buttons for diagnosis
     try:
-        btns = page.evaluate("() => Array.from(document.querySelectorAll('button,a,[role=button],[role=link]')).map(e => e.innerText.trim()).filter(t => t)")
+        if loc is page:
+            btns = page.evaluate("() => Array.from(document.querySelectorAll('button,a,[role=button],[role=link]')).map(e => e.innerText.trim()).filter(t => t)")
+        else:
+            btns = loc.locator("button, a").all_inner_texts()
         print(f"[JUSTIN DUO] Buttons/links after expand: {btns}", flush=True)
     except Exception:
         pass
@@ -168,7 +192,7 @@ def _handle_duo(page, method, duo_provider, cb):
         for label in ("Duo Push", "Send me a Push", "Push Notification", "Push"):
             for role in ("button", "link"):
                 try:
-                    page.get_by_role(role, name=re.compile(label, re.IGNORECASE)).first.click(timeout=8000)
+                    loc.get_by_role(role, name=re.compile(label, re.IGNORECASE)).first.click(timeout=8000)
                     clicked = True
                     break
                 except Exception:
@@ -176,26 +200,20 @@ def _handle_duo(page, method, duo_provider, cb):
             if clicked:
                 break
         if not clicked:
-            # Push not available — fall back to passcode
             cb("Duo Push not available — switching to passcode...")
             method = "passcode"
         else:
-            # Notify the UI (non-blocking — just shows "check your phone" screen)
             duo_provider()
-            # Wait for Duo to redirect back after user taps Approve on their phone
             page.wait_for_url("**/bruinepermit.t2hosted.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
             cb("DUO verified!")
             return
 
     # ── Passcode flow ──────────────────────────────────────────────────────
-    # Click the passcode option — label varies by DUO UI version.
-    # New Universal Prompt (frameless): "Use a Passcode" or "Enter a Passcode"
-    # Old prompt: "Send a passcode"
     clicked = False
     for label in ("Use a Passcode", "Enter a Passcode", "Send a passcode", "Passcode"):
         for role in ("button", "link"):
             try:
-                page.get_by_role(role, name=re.compile(label, re.IGNORECASE)).first.click(timeout=8000)
+                loc.get_by_role(role, name=re.compile(label, re.IGNORECASE)).first.click(timeout=8000)
                 clicked = True
                 break
             except Exception:
@@ -206,23 +224,18 @@ def _handle_duo(page, method, duo_provider, cb):
         _screenshot(page, "duo_no_button")
         raise Exception("Could not find passcode button on the DUO page — try again.")
 
-    # Wait for the passcode textbox to appear on the DUO page before notifying
-    # the user — this confirms DUO has actually sent the SMS/code, so Justin's
-    # "enter your code" screen and the arriving text are in sync.
     try:
-        page.get_by_role("textbox").first.wait_for(timeout=30000)
+        loc.get_by_role("textbox").first.wait_for(timeout=30000)
     except Exception:
         _screenshot(page, "duo_no_textbox")
         raise Exception("DUO did not show a passcode input — try again.")
 
-    # duo_provider() blocks until the user submits their code via the web UI
     code = duo_provider()
     if not code:
         raise TimeoutError("DUO passcode not received — timed out after 5 minutes.")
 
-    # Fill the passcode input and submit
-    page.get_by_role("textbox").first.fill(code)
-    page.get_by_role("textbox").first.press("Enter")
+    loc.get_by_role("textbox").first.fill(code)
+    loc.get_by_role("textbox").first.press("Enter")
 
     page.wait_for_url("**/bruinepermit.t2hosted.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
     cb("DUO verified!")
