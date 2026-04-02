@@ -109,6 +109,7 @@ def _handle_duo(page, method, duo_provider, cb):
     # Wait up to 30 s for a redirect to duosecurity.com (Universal Prompt).
     # If the redirect doesn't happen, Duo may be embedded as an iframe on the
     # current Shibboleth page (classic integration on shb.ais.ucla.edu).
+    _screenshot(page, "duo_start")   # always capture where we are entering Duo
     loc = page   # element interaction target; may be replaced by a FrameLocator
     try:
         page.wait_for_url(re.compile(r'duosecurity\.com'), timeout=30000)
@@ -120,6 +121,7 @@ def _handle_duo(page, method, duo_provider, cb):
             body_text = page.inner_text("body")
         except Exception:
             pass
+        _screenshot(page, "duo_timeout")
         print(f"[JUSTIN DUO] No redirect after 30s. URL: {url}", flush=True)
         print(f"[JUSTIN DUO] Body:\n{body_text[:800]}", flush=True)
 

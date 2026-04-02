@@ -137,6 +137,20 @@ def ping():
     return "ok", 200
 
 
+@app.route("/api/screenshot/<name>")
+def api_screenshot(name):
+    """Serve a debug screenshot by name (e.g. 'duo_timeout', 'after_sign_in')."""
+    import re as _re2
+    if not _re2.match(r'^[\w\-]+$', name):
+        return "Invalid name", 400
+    import os as _os
+    path = _os.path.join(config.SCREENSHOT_DIR, f"{name}.png")
+    if not _os.path.exists(path):
+        return "Not found", 404
+    from flask import send_file
+    return send_file(path, mimetype="image/png")
+
+
 @app.route("/sw.js")
 def sw_js():
     response = app.send_static_file("sw.js")
