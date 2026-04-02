@@ -1,8 +1,22 @@
 """
 Justin EMBAlake – Playwright automation, decoupled from Telegram.
 Called by app.py in background threads.
+
+Session caching (Reggie-style):
+  After Duo authenticates successfully, the browser session state (cookies,
+  localStorage) is saved to /tmp/justin_cache/<hash>.json.  On subsequent
+  runs the saved state is restored and the SSO+Duo steps are skipped entirely,
+  reducing the purchase flow from ~3 minutes to ~30 seconds.  The cache is
+  valid for 25 days (Duo "remember this device" is ~30 days).  If the cached
+  session turns out to be expired the code falls back automatically to the
+  full login+Duo flow and saves a fresh session afterwards.
+
+To roll back to the Playwright-only version (no caching):
+  git checkout v1-no-session-cache -- parking_automation.py
 """
 
+import hashlib
+import json as _json
 import os
 import re
 import time
@@ -12,6 +26,53 @@ import config
 
 BRUIN_BILL_RETRY_DELAY = 120  # seconds to wait when Bruin Bill is down
 
+# ── Session cache ─────────────────────────────────────────────────────────────
+
+_CACHE_DIR = "/tmp/justin_cache"
+_SESSION_TTL = 25 * 24 * 3600   # 25 days — conservative vs Duo's ~30-day remember-me
+
+
+def _cache_path(username):
+    h = hashlib.sha256(username.lower().encode()).hexdigest()[:16]
+    return os.path.join(_CACHE_DIR, f"{h}.json")
+
+
+def _load_session(username):
+    """Return saved Playwright storage_state dict, or None if absent/expired."""
+    try:
+        with open(_cache_path(username)) as f:
+            data = _json.load(f)
+        age = time.time() - data.get("saved_at", 0)
+        if age > _SESSION_TTL:
+            print(f"[JUSTIN CACHE] Session too old ({age/3600:.0f}h) — ignoring", flush=True)
+            return None
+        print(f"[JUSTIN CACHE] Loaded session ({age/3600:.1f}h old) — will try to skip Duo", flush=True)
+        return data["storage_state"]
+    except Exception:
+        return None
+
+
+def _save_session(username, storage_state):
+    """Persist browser session state after successful Duo auth."""
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        with open(_cache_path(username), "w") as f:
+            _json.dump({"saved_at": time.time(), "storage_state": storage_state}, f)
+        print(f"[JUSTIN CACHE] Session saved — Duo will be skipped for ~25 days", flush=True)
+    except Exception as e:
+        print(f"[JUSTIN CACHE] Save failed (non-fatal): {e}", flush=True)
+
+
+def _clear_session(username):
+    """Invalidate cached session (called after auth failure)."""
+    try:
+        os.remove(_cache_path(username))
+        print(f"[JUSTIN CACHE] Session cleared", flush=True)
+    except Exception:
+        pass
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 class BruinBillUnavailable(Exception):
     pass
@@ -34,16 +95,12 @@ def _screenshot(page, name):
 def _is_captcha_active(page):
     """Return True only if a real CAPTCHA challenge is actually on screen."""
     try:
-        # Hard block: "softblock" in URL
         if "softblock" in page.url.lower():
             return True
-        # Check for recaptcha iframe (strongest signal)
         if page.locator("iframe[src*='recaptcha'], iframe[src*='hcaptcha']").count() > 0:
             return True
-        # Check for Queue-it bot-check input
         if page.locator("input[id*='captcha'], input[name*='captcha']").count() > 0:
             return True
-        # Text signals only as a last resort
         body = page.inner_text("body").lower()
         CAPTCHA_PHRASES = [
             "i'm not a robot",
@@ -67,7 +124,6 @@ def _wait_for_queue_it(page, cb):
     if not in_queue:
         return
 
-    # Log where we landed for debugging
     print(f"[JUSTIN] Queue-it detected. URL: {page.url}", flush=True)
     try:
         body_snippet = page.inner_text("body")[:400]
@@ -106,10 +162,7 @@ def _handle_duo(page, method, duo_provider, cb):
     """
     cb("DUO authentication required...")
 
-    # Wait up to 30 s for a redirect to duosecurity.com (Universal Prompt).
-    # If the redirect doesn't happen, Duo may be embedded as an iframe on the
-    # current Shibboleth page (classic integration on shb.ais.ucla.edu).
-    _screenshot(page, "duo_start")   # always capture where we are entering Duo
+    _screenshot(page, "duo_start")
     loc = page   # element interaction target; may be replaced by a FrameLocator
     try:
         page.wait_for_url(re.compile(r'duosecurity\.com'), timeout=config.PAGE_LOAD_TIMEOUT)
@@ -122,10 +175,9 @@ def _handle_duo(page, method, duo_provider, cb):
         except Exception:
             pass
         _screenshot(page, "duo_timeout")
-        print(f"[JUSTIN DUO] No redirect after 30s. URL: {url}", flush=True)
+        print(f"[JUSTIN DUO] No redirect after 60s. URL: {url}", flush=True)
         print(f"[JUSTIN DUO] Body:\n{body_text[:800]}", flush=True)
 
-        # Detect wrong credentials first
         body_lower = body_text.lower()
         if any(p in body_lower for p in [
             "incorrect", "invalid", "login failed",
@@ -152,7 +204,6 @@ def _handle_duo(page, method, duo_provider, cb):
                 break
 
         if not iframe_found:
-            _screenshot(page, "duo_timeout")
             raise Exception(
                 f"DUO page did not load (still on {url}). "
                 "Check your UCLA credentials and try again."
@@ -165,8 +216,7 @@ def _handle_duo(page, method, duo_provider, cb):
         cb("DUO verified!")
         return
 
-    # UCLA's Duo Universal Prompt hides auth methods behind "Other options".
-    # Click it if present (safe to try regardless of method).
+    # UCLA's Duo Universal Prompt hides auth methods behind "Other options"
     for role in ("button", "link"):
         try:
             loc.get_by_role(role, name=re.compile("other options", re.IGNORECASE)).first.click(timeout=5000)
@@ -179,7 +229,6 @@ def _handle_duo(page, method, duo_provider, cb):
         cb("DUO verified!")
         return
 
-    # Log available buttons for diagnosis
     try:
         if loc is page:
             btns = page.evaluate("() => Array.from(document.querySelectorAll('button,a,[role=button],[role=link]')).map(e => e.innerText.trim()).filter(t => t)")
@@ -244,13 +293,11 @@ def _handle_duo(page, method, duo_provider, cb):
 
 
 def _find_permit_radio(page):
-    # Try accessible name first (avoid "/" in patterns — breaks CSS selector parsing)
     for pattern in ["1-Day Student", "1-Day", "Yellow"]:
         radio = page.get_by_role("radio", name=re.compile(pattern, re.IGNORECASE))
         if radio.count() > 0:
             return radio
 
-    # Try matching via associated <label> text (bruinepermit uses label-for associations)
     all_radios = page.get_by_role("radio").all()
     for radio in all_radios:
         radio_id = radio.get_attribute("id") or ""
@@ -263,7 +310,6 @@ def _find_permit_radio(page):
                     if pattern in label_text.lower():
                         return radio
 
-    # Log all radio info for diagnosis and fall back to first radio
     info = []
     for radio in all_radios:
         rid = radio.get_attribute("id") or ""
@@ -275,7 +321,7 @@ def _find_permit_radio(page):
         print("[JUSTIN PERMIT] Falling back to first radio", flush=True)
         return page.get_by_role("radio").first
 
-    raise Exception(f"Could not find any permit radio buttons on the page.")
+    raise Exception("Could not find any permit radio buttons on the page.")
 
 
 def _verify_purchase_success(page):
@@ -296,8 +342,16 @@ def _verify_purchase_success(page):
         return None
 
 
-def _do_purchase(page, username, password, structure, cb, duo_provider, duo_method="push", dry_run=False):
-    # Step 1: Navigate
+# ── Permit flow (steps shared by both full and cached paths) ──────────────────
+
+def _enter_permit_flow(page, cb):
+    """Navigate to Account/Portal and enter the permit purchase flow.
+
+    If called with a valid cached session, UCLA SSO auto-redirects after
+    'UCLA Logon' without asking for credentials or Duo again.
+    If the session is expired, the site will redirect to the SSO login page
+    and the caller should detect that and fall back to the full flow.
+    """
     cb("Opening the UCLA parking site...")
     page.goto(
         "https://bruinepermit.t2hosted.com/Account/Portal",
@@ -308,13 +362,9 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
 
     body_text = page.inner_text("body")
     print(f"[JUSTIN] Page URL: {page.url}", flush=True)
-    print(f"[JUSTIN] Page title: {page.title()}", flush=True)
-    print(f"[JUSTIN] Body snippet: {body_text[:300]}", flush=True)
-
     if "bruin bill is not currently available" in body_text.lower():
         raise BruinBillUnavailable("Bruin Bill payment system is temporarily down.")
 
-    # Step 2: Start permit flow — try several button name variants
     cb("Starting permit flow...")
     clicked = False
     for btn_text in ["Get Permits", "Buy Permits", "Purchase Permits", "Permits"]:
@@ -325,86 +375,24 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
         except Exception:
             pass
     if not clicked:
-        # Fallback: any link or button containing "permit"
         page.locator("a, button").filter(
             has_text=re.compile(r"permit", re.IGNORECASE)
         ).first.click(timeout=10000)
 
-    page.get_by_role("button", name="UCLA Logon").click()
-
-    # Step 3: UCLA SSO login
-    cb("Logging in with your UCLA credentials...")
-    page.get_by_placeholder("Your UCLA Logon ID").fill(username)
-    page.get_by_placeholder("Your UCLA Logon ID").press("Tab")
-    page.get_by_placeholder("Your UCLA Logon Password").fill(password)
-    page.get_by_role("button", name="Sign In").click()
-
-    # Diagnostic: log what page we land on after Sign In
-    page.wait_for_load_state("domcontentloaded")
-    print(f"[JUSTIN SSO] After Sign In — URL: {page.url}", flush=True)
-    sso_body = ""
     try:
-        sso_body = page.inner_text("body")
-        print(f"[JUSTIN SSO] Body:\n{sso_body[:800]}", flush=True)
+        page.get_by_role("button", name="UCLA Logon").click(timeout=8000)
     except Exception:
         pass
-    # If still on Shibboleth SSO, check for a credential error immediately
-    if "shb.ais.ucla.edu" in page.url and sso_body:
-        sso_lower = sso_body.lower()
-        if any(p in sso_lower for p in [
-            "incorrect", "invalid", "login failed",
-            "authentication failed", "wrong password", "please try again",
-        ]):
-            raise Exception(
-                "UCLA login failed — wrong username or password. "
-                "Go to Setup and double-check your credentials."
-            )
-    _screenshot(page, "after_sign_in")
 
-    # Step 4: DUO 2FA
-    _handle_duo(page, duo_method, duo_provider, cb)
-    cb("Navigating to permits...")
+    page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+    print(f"[JUSTIN] After UCLA Logon: {page.url}", flush=True)
 
-    print(f"[JUSTIN POST-DUO] URL: {page.url}", flush=True)
 
-    # If Duo auto-approved (remembered session) and landed us somewhere on bruinepermit
-    # other than per/index.aspx, re-enter via Account/Portal → Get Permits → UCLA Logon.
-    # Direct navigation to per/index.aspx loses the permit category context (shows
-    # quarterly permits instead of 1-Day Student). Going through Get Permits re-establishes it.
-    if "bruinepermit.t2hosted.com" in page.url and "per/index.aspx" not in page.url:
-        print(f"[JUSTIN] Re-entering permit flow via Account/Portal from {page.url}", flush=True)
-        cb("Setting up permit session...")
-        page.goto(
-            "https://bruinepermit.t2hosted.com/Account/Portal",
-            timeout=config.PAGE_LOAD_TIMEOUT,
-            wait_until="domcontentloaded",
-        )
-        print(f"[JUSTIN REENTER] Account/Portal URL: {page.url}", flush=True)
-
-        # Click "Get Permits" — establishes 1-Day Student permit context in the session
-        clicked = False
-        for btn_text in ["Get Permits", "Buy Permits", "Purchase Permits", "Permits"]:
-            try:
-                page.get_by_role("button", name=re.compile(btn_text, re.IGNORECASE)).click(timeout=5000)
-                clicked = True
-                break
-            except Exception:
-                pass
-        if not clicked:
-            page.locator("a, button").filter(
-                has_text=re.compile(r"permit", re.IGNORECASE)
-            ).first.click(timeout=10000)
-
-        # SSO session is active — "UCLA Logon" auto-redirects without re-authenticating
-        try:
-            page.get_by_role("button", name="UCLA Logon").click(timeout=8000)
-        except Exception:
-            pass  # May not appear if already redirected
-
-        page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
-        print(f"[JUSTIN REENTER] After UCLA Logon: {page.url}", flush=True)
-
-    # Step 5: Handle orphaned cart if present
+def _run_permit_steps(page, structure, cb, dry_run=False):
+    """Steps 5–9: orphaned cart → permit → vehicle → structure → checkout.
+    Called from both the full flow and the cached-session fast path.
+    """
+    # Step 5: Handle orphaned cart
     try:
         body = page.inner_text("body")
         if ("orphan" in page.url.lower() or "basket" in page.url.lower()
@@ -425,7 +413,7 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
                     links.last.click()
                     empty_clicked = True
             if not empty_clicked:
-                # Last resort: click Get Permits again to restart the flow cleanly
+                # Last resort: re-enter via Account/Portal
                 page.goto(
                     "https://bruinepermit.t2hosted.com/Account/Portal",
                     timeout=config.PAGE_LOAD_TIMEOUT,
@@ -451,7 +439,6 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
     page.wait_for_url("**/per/index.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
     page.wait_for_load_state("domcontentloaded")
 
-    # Log per/index.aspx content to understand what permit categories are available
     try:
         idx_body = page.inner_text("body")
         print(f"[JUSTIN INDEX] per/index.aspx body:\n{idx_body[:800]}", flush=True)
@@ -469,12 +456,11 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
     except Exception as e:
         print(f"[JUSTIN INDEX] Log error: {e}", flush=True)
 
-    # Select the daily/1-day permit category on per/index.aspx if a choice is present
     for pattern in ["1-Day", "Daily", "Student", "Temporary"]:
         try:
             radio = page.get_by_role("radio", name=re.compile(pattern, re.IGNORECASE))
             if radio.count() > 0:
-                print(f"[JUSTIN INDEX] Selecting permit category radio: {pattern}", flush=True)
+                print(f"[JUSTIN INDEX] Selecting permit category: {pattern}", flush=True)
                 radio.first.check()
                 break
         except Exception:
@@ -489,10 +475,9 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
     page.get_by_role("checkbox", name="I agree to the University").check()
     page.get_by_role("button", name="Next >>").click()
 
-    # Step 7: Select vehicle (auto-select all vehicles on the account)
+    # Step 7: Select vehicle
     cb("Selecting vehicle...")
     page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
-    # Wait for at least one checkbox to appear before collecting all
     page.get_by_role("checkbox").first.wait_for(timeout=config.PAGE_LOAD_TIMEOUT)
     checkboxes = page.get_by_role("checkbox").all()
     checked = 0
@@ -514,7 +499,6 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
     available_options = dropdown.evaluate(
         "el => Array.from(el.options).map(o => ({value: o.value, text: o.text, disabled: o.disabled}))"
     )
-
     print(f"[JUSTIN DROPDOWN] Available options: {available_options}", flush=True)
 
     selected_available = any(
@@ -559,25 +543,176 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
     raise Exception("No purchase confirmation found on page — check manually: https://bruinepermit.t2hosted.com")
 
 
-def run_purchase(username, password, structure, callback, duo_provider, duo_method="push", dry_run=False, real_dry_run=False):
-    """Run the full purchase flow for one user, with retries.
+# ── Purchase flows ────────────────────────────────────────────────────────────
 
-    dry_run=True      — mock flow, no browser, just tests the web UI state machine.
-    real_dry_run=True — real browser, real UCLA site, real DUO, stops before Process Transaction.
+def _do_purchase_full(page, context, username, password, structure, cb, duo_provider,
+                      duo_method="push", dry_run=False, save_session_for=None):
+    """Full flow: navigate → UCLA login → Duo → permit steps.
+
+    save_session_for: if set (username string), saves browser session after
+    Duo so future runs can skip login+Duo entirely.
+    """
+    _enter_permit_flow(page, cb)
+
+    # Step 3: UCLA SSO login
+    cb("Logging in with your UCLA credentials...")
+    page.get_by_placeholder("Your UCLA Logon ID").fill(username)
+    page.get_by_placeholder("Your UCLA Logon ID").press("Tab")
+    page.get_by_placeholder("Your UCLA Logon Password").fill(password)
+    page.get_by_role("button", name="Sign In").click()
+
+    page.wait_for_load_state("domcontentloaded")
+    print(f"[JUSTIN SSO] After Sign In — URL: {page.url}", flush=True)
+    sso_body = ""
+    try:
+        sso_body = page.inner_text("body")
+        print(f"[JUSTIN SSO] Body:\n{sso_body[:800]}", flush=True)
+    except Exception:
+        pass
+    if "shb.ais.ucla.edu" in page.url and sso_body:
+        sso_lower = sso_body.lower()
+        if any(p in sso_lower for p in [
+            "incorrect", "invalid", "login failed",
+            "authentication failed", "wrong password", "please try again",
+        ]):
+            raise Exception(
+                "UCLA login failed — wrong username or password. "
+                "Go to Setup and double-check your credentials."
+            )
+    _screenshot(page, "after_sign_in")
+
+    # Step 4: DUO 2FA
+    _handle_duo(page, duo_method, duo_provider, cb)
+
+    # ── Save session immediately after Duo so next run can skip this whole section ──
+    if save_session_for:
+        _save_session(save_session_for, context.storage_state())
+
+    cb("Navigating to permits...")
+    print(f"[JUSTIN POST-DUO] URL: {page.url}", flush=True)
+
+    # If Duo auto-approved and landed us off the permit path, re-enter via Account/Portal
+    if "bruinepermit.t2hosted.com" in page.url and "per/index.aspx" not in page.url:
+        print(f"[JUSTIN] Re-entering permit flow from {page.url}", flush=True)
+        cb("Setting up permit session...")
+        page.goto(
+            "https://bruinepermit.t2hosted.com/Account/Portal",
+            timeout=config.PAGE_LOAD_TIMEOUT,
+            wait_until="domcontentloaded",
+        )
+        clicked = False
+        for btn_text in ["Get Permits", "Buy Permits", "Purchase Permits", "Permits"]:
+            try:
+                page.get_by_role("button", name=re.compile(btn_text, re.IGNORECASE)).click(timeout=5000)
+                clicked = True
+                break
+            except Exception:
+                pass
+        if not clicked:
+            page.locator("a, button").filter(
+                has_text=re.compile(r"permit", re.IGNORECASE)
+            ).first.click(timeout=10000)
+        try:
+            page.get_by_role("button", name="UCLA Logon").click(timeout=8000)
+        except Exception:
+            pass
+        page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+        print(f"[JUSTIN REENTER] URL: {page.url}", flush=True)
+
+    return _run_permit_steps(page, structure, cb, dry_run)
+
+
+def _do_purchase_cached(page, structure, cb, dry_run=False):
+    """Fast path: restored session, skip UCLA login + Duo entirely.
+
+    Raises if the session turned out to be expired (caller falls back to full flow).
+    """
+    _enter_permit_flow(page, cb)
+
+    # If we ended up on the SSO login page, session has expired
+    if "shb.ais.ucla.edu" in page.url or "login" in page.url.lower():
+        raise Exception("Cached session expired — falling back to full login")
+
+    print(f"[JUSTIN CACHE] Fast path active — skipped login & Duo", flush=True)
+    cb("Session restored — skipping Duo...")
+
+    # May have landed off the permit path (e.g. Account/Portal dashboard)
+    if "bruinepermit.t2hosted.com" in page.url and "per/index.aspx" not in page.url:
+        print(f"[JUSTIN CACHE] Not on permit path ({page.url}), navigating in...", flush=True)
+        clicked = False
+        for btn_text in ["Get Permits", "Buy Permits", "Purchase Permits", "Permits"]:
+            try:
+                page.get_by_role("button", name=re.compile(btn_text, re.IGNORECASE)).click(timeout=5000)
+                clicked = True
+                break
+            except Exception:
+                pass
+        if not clicked:
+            page.locator("a, button").filter(
+                has_text=re.compile(r"permit", re.IGNORECASE)
+            ).first.click(timeout=10000)
+        try:
+            page.get_by_role("button", name="UCLA Logon").click(timeout=8000)
+        except Exception:
+            pass
+        page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+
+    return _run_permit_steps(page, structure, cb, dry_run)
+
+
+# ── Browser / context setup ───────────────────────────────────────────────────
+
+def _make_context(browser, storage_state=None):
+    kwargs = dict(
+        user_agent=(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/121.0.0.0 Safari/537.36"
+        ),
+        locale="en-US",
+    )
+    if storage_state:
+        kwargs["storage_state"] = storage_state
+    return browser.new_context(**kwargs)
+
+
+def _setup_page(context):
+    page = context.new_page()
+    page.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    )
+    try:
+        from playwright_stealth import stealth_sync
+        stealth_sync(page)
+    except Exception:
+        pass
+    page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
+    page.route("**/*", lambda route: route.abort()
+        if route.request.resource_type in ("image", "media")
+        else route.continue_())
+    return page
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def run_purchase(username, password, structure, callback, duo_provider, duo_method="push",
+                 dry_run=False, real_dry_run=False):
+    """Run the full purchase flow for one user.
+
+    dry_run=True      — mock flow (no browser), tests the web UI state machine.
+    real_dry_run=True — real browser + UCLA site, stops before Process Transaction.
     """
     def cb(msg):
         if callback:
             callback(msg)
 
     if dry_run and not real_dry_run:
-        # Mock flow — no browser, no UCLA servers touched.
-        # Exercises the full web-UI state machine (loading → DUO → loading → success).
         cb("Opening the UCLA parking site...")
         time.sleep(1.5)
         cb("Logging in with your UCLA credentials...")
         time.sleep(1.5)
         cb("DUO authentication required...")
-        duo_provider()           # blocks until user submits code in the UI
+        duo_provider()
         cb("Navigating to permits...")
         time.sleep(1.0)
         cb("Selecting permit...")
@@ -589,6 +724,30 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
         cb("Dry run complete — stopping before Process Transaction.")
         return "dry_run"
 
+    actual_dry_run = dry_run or real_dry_run
+
+    # ── Fast path: try cached session (skip login + Duo) ──────────────────
+    cached_session = _load_session(username)
+    if cached_session:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--disable-gpu", "--no-sandbox"])
+            context = _make_context(browser, storage_state=cached_session)
+            page = _setup_page(context)
+            try:
+                result = _do_purchase_cached(page, structure, cb, dry_run=actual_dry_run)
+                _screenshot(page, "success")
+                print(f"[JUSTIN CACHE] Fast path succeeded!", flush=True)
+                return result
+            except BruinBillUnavailable:
+                raise   # propagate immediately — no point retrying
+            except Exception as e:
+                print(f"[JUSTIN CACHE] Fast path failed: {e} — clearing cache, retrying with full login", flush=True)
+                _clear_session(username)
+                _screenshot(page, "cache_miss")
+            finally:
+                browser.close()
+
+    # ── Full path: login + Duo + save session for next time ───────────────
     last_error = None
 
     for attempt in range(1, config.MAX_RETRIES + 1):
@@ -597,36 +756,14 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--disable-gpu", "--no-sandbox"])
-
-            context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/121.0.0.0 Safari/537.36"
-                ),
-                locale="en-US",
-            )
-            page = context.new_page()
-            page.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-            )
-            try:
-                from playwright_stealth import stealth_sync
-                stealth_sync(page)
-            except Exception:
-                pass
-            page.set_default_timeout(config.PAGE_LOAD_TIMEOUT)
-
-            # Block images and media to speed up page loads
-            # NOTE: fonts are NOT blocked — some bot-detection checks for font loading
-            page.route("**/*", lambda route: route.abort()
-                if route.request.resource_type in ("image", "media")
-                else route.continue_())
+            context = _make_context(browser)
+            page = _setup_page(context)
 
             try:
-                result = _do_purchase(
-                    page, username, password, structure,
-                    cb, duo_provider, duo_method=duo_method, dry_run=(dry_run or real_dry_run),
+                result = _do_purchase_full(
+                    page, context, username, password, structure,
+                    cb, duo_provider, duo_method=duo_method, dry_run=actual_dry_run,
+                    save_session_for=username,   # saves session after Duo succeeds
                 )
                 _screenshot(page, "success")
                 return result
@@ -643,7 +780,6 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
 
             except Exception as e:
                 last_error = e
-                # If login failed, wipe cached session so next attempt does fresh login
                 _screenshot(page, f"error_attempt{attempt}")
                 if attempt < config.MAX_RETRIES:
                     cb(f"Hit an issue (attempt {attempt}/{config.MAX_RETRIES}) — retrying...")
