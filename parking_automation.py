@@ -426,6 +426,8 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
 
     # Step 8: Select parking structure
     cb("Selecting parking structure...")
+    page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+    page.get_by_label("Parking Area").wait_for(timeout=config.PAGE_LOAD_TIMEOUT)
     dropdown = page.get_by_label("Parking Area")
     available_options = dropdown.evaluate(
         "el => Array.from(el.options).map(o => ({value: o.value, text: o.text, disabled: o.disabled}))"
