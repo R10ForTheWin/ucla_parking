@@ -360,11 +360,15 @@ def _find_permit_radio(page):
 def _verify_purchase_success(page):
     try:
         page.wait_for_load_state("networkidle", timeout=config.PAGE_LOAD_TIMEOUT)
+        _screenshot(page, "after_purchase")
         body = page.inner_text("body")
-        for pattern in ["confirmation", "receipt", "transaction complete", "successfully"]:
+        print(f"[JUSTIN VERIFY] Page URL: {page.url}", flush=True)
+        print(f"[JUSTIN VERIFY] Page body (first 600 chars):\n{body[:600]}", flush=True)
+        for pattern in ["confirmation", "receipt", "transaction complete", "successfully",
+                        "permit number", "issued", "approved", "thank you", "order"]:
             if pattern.lower() in body.lower():
                 match = re.search(
-                    r'(?:confirmation|receipt|transaction)\s*(?:#|number|no)?[:\s]*(\w+)',
+                    r'(?:confirmation|receipt|transaction|permit|order)\s*(?:#|number|no)?[:\s]*(\w+)',
                     body, re.IGNORECASE
                 )
                 if match:
