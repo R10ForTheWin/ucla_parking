@@ -163,58 +163,77 @@ def _handle_duo(page, method, duo_provider, cb):
     cb("DUO authentication required...")
 
     _screenshot(page, "duo_start")
-    loc = page   # element interaction target; may be replaced by a FrameLocator
-    try:
-        page.wait_for_url(re.compile(r'duosecurity\.com'), timeout=config.PAGE_LOAD_TIMEOUT)
-        print(f"[JUSTIN DUO] Redirected to Duo standalone page", flush=True)
-    except PwTimeout:
-        url = page.url
-        body_text = ""
-        try:
-            body_text = page.inner_text("body")
-        except Exception:
-            pass
-        _screenshot(page, "duo_timeout")
-        print(f"[JUSTIN DUO] No redirect after 60s. URL: {url}", flush=True)
-        print(f"[JUSTIN DUO] Body:\n{body_text[:800]}", flush=True)
+    loc = page
+    current_url = page.url
+    print(f"[JUSTIN DUO] Entry URL: {current_url}", flush=True)
 
-        body_lower = body_text.lower()
-        if any(p in body_lower for p in [
-            "incorrect", "invalid", "login failed",
-            "authentication failed", "wrong password", "please try again",
-        ]):
-            raise Exception(
-                "UCLA login failed — wrong username or password. "
-                "Go to Setup and double-check your credentials."
-            )
+    if "bruinepermit.t2hosted.com" in current_url:
+        # Auto-approved before we even started
+        cb("DUO verified!")
+        return
 
-        # Log ALL iframes so we can see exactly what's on the page
+    if "duosecurity.com" in current_url:
+        # Already on standalone Duo page — just wait for it to settle
+        print(f"[JUSTIN DUO] Already on standalone Duo page", flush=True)
+        page.wait_for_load_state("networkidle")
+
+    elif "shb.ais.ucla.edu" in current_url:
+        # UCLA changed their Duo integration (effective ~March 31 2026):
+        # Duo is now embedded inline on the Shibboleth e1s3 page instead of
+        # redirecting to duosecurity.com.  No need to wait — interact directly.
+        print(f"[JUSTIN DUO] On Shibboleth page — using inline Duo (no redirect expected)", flush=True)
+        page.wait_for_load_state("networkidle")
+
+        # Log all iframes for diagnosis
         try:
             all_iframes = page.evaluate("""() => Array.from(document.querySelectorAll('iframe')).map(f => ({
                 id: f.id, name: f.name, src: f.src, title: f.title, className: f.className
             }))""")
-            print(f"[JUSTIN DUO] All iframes on page: {all_iframes}", flush=True)
+            print(f"[JUSTIN DUO] Iframes on page: {all_iframes}", flush=True)
         except Exception:
             pass
 
-        # Check for embedded Duo iframe (classic Shibboleth-Duo integration)
-        for iframe_sel in [
-            "iframe#duo_iframe",
-            "iframe[id*='duo']",
-            "iframe[src*='duosecurity']",
-            "iframe[title*='Two-Factor']",
-            "iframe[title*='Duo']",
-        ]:
+        # Check for a Duo iframe (classic integration)
+        for iframe_sel in ["iframe#duo_iframe", "iframe[id*='duo']",
+                           "iframe[src*='duosecurity']", "iframe[title*='Duo']"]:
             if page.locator(iframe_sel).count() > 0:
-                print(f"[JUSTIN DUO] Found embedded Duo iframe: {iframe_sel}", flush=True)
+                print(f"[JUSTIN DUO] Found Duo iframe: {iframe_sel}", flush=True)
                 loc = page.frame_locator(iframe_sel)
                 break
         else:
-            # No iframe found — Duo may be embedded as a div (Web SDK v4 / Universal Prompt
-            # inline). Keep loc = page and try interacting with the page directly.
-            print(f"[JUSTIN DUO] No Duo iframe found — trying page-level interaction", flush=True)
+            # No iframe — Duo is rendered inline as a div (Web SDK v4)
+            print(f"[JUSTIN DUO] No iframe — will interact with page directly", flush=True)
 
-    page.wait_for_load_state("networkidle")
+    else:
+        # Unknown starting URL — wait up to 30s for a redirect to duosecurity.com
+        print(f"[JUSTIN DUO] Unexpected URL {current_url} — waiting for Duo redirect", flush=True)
+        try:
+            page.wait_for_url(re.compile(r'duosecurity\.com'), timeout=30000)
+            print(f"[JUSTIN DUO] Redirected to standalone Duo", flush=True)
+        except PwTimeout:
+            _screenshot(page, "duo_timeout")
+            url = page.url
+            body_text = ""
+            try:
+                body_text = page.inner_text("body")
+            except Exception:
+                pass
+            print(f"[JUSTIN DUO] No redirect after 30s. URL: {url}", flush=True)
+            print(f"[JUSTIN DUO] Body:\n{body_text[:400]}", flush=True)
+            body_lower = body_text.lower()
+            if any(p in body_lower for p in [
+                "incorrect", "invalid", "login failed",
+                "authentication failed", "wrong password", "please try again",
+            ]):
+                raise Exception(
+                    "UCLA login failed — wrong username or password. "
+                    "Go to Setup and double-check your credentials."
+                )
+            raise Exception(
+                f"DUO page did not load (still on {url}). "
+                "Check your UCLA credentials and try again."
+            )
+        page.wait_for_load_state("networkidle")
 
     # Duo sometimes auto-approves (remembered session) — already on bruinepermit
     if "bruinepermit.t2hosted.com" in page.url:
