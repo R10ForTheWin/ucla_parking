@@ -47,11 +47,11 @@ jobs:
           EVI_DATES = {'2026-04-12', '2026-05-10', '2026-05-31'}
           is_class_day = today in EVI_DATES
 
-          # Deduplicate: only proceed if within 150 min of 9 AM target.
+          # Deduplicate: only proceed if within 150 min of 6 AM target.
           target = now.replace(hour=6, minute=0, second=0, microsecond=0)
           minutes_to_target = abs((target - now).total_seconds()) / 60
           if not is_manual and minutes_to_target > 150:
-              print(f'Dedup: {minutes_to_target:.0f} min from 9 AM target. Skipping.')
+              print(f'Dedup: {minutes_to_target:.0f} min from 6 AM target. Skipping.')
               is_class_day = False
 
           print(f'Today (PT): {today}, hour: {now.hour}, EVI class day: {is_class_day}, manual: {is_manual}')
@@ -61,7 +61,7 @@ jobs:
               f.write(f'should_run={\"true\" if (is_class_day or is_manual) else \"false\"}\n')
           "
 
-      - name: Wait until 9:00 AM Pacific
+      - name: Wait until 6:00 AM Pacific
         if: steps.datecheck.outputs.should_run == 'true' && github.event_name != 'workflow_dispatch'
         run: |
           python -c "

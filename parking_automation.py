@@ -558,7 +558,8 @@ def _run_permit_steps(page, structure, cb, dry_run=False):
             cb(f"{sold_out_name} is sold out — automatically switching to {alt_name}...")
             structure = alt_structure
         else:
-            avail = [o['text'] for o in available_options if o['value'] not in ('', 'Select One', '-1')]
+            avail = [o['text'] for o in available_options
+                     if not o.get('disabled', False) and o['value'] not in ('', 'Select One', '-1')]
             avail_str = ", ".join(avail) if avail else "none"
             print(f"[JUSTIN DROPDOWN] Full options: {available_options}", flush=True)
             raise Exception(f"Both P4 and P7 are sold out — available structures today: {avail_str}.")
