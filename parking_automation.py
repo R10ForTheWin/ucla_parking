@@ -240,11 +240,20 @@ def _handle_duo(page, method, duo_provider, cb):
         cb("DUO verified!")
         return
 
-    # UCLA's Duo Universal Prompt hides auth methods behind "Other options"
+    # UCLA's Duo Universal Prompt hides auth methods behind "Other options".
+    # After clicking it, the method buttons render asynchronously (React SPA) —
+    # networkidle fires before they appear, so wait for actual button content instead.
     for role in ("button", "link"):
         try:
             loc.get_by_role(role, name=re.compile("other options", re.IGNORECASE)).first.click(timeout=5000)
-            page.wait_for_load_state("networkidle")
+            try:
+                page.wait_for_function(
+                    "() => Array.from(document.querySelectorAll('button,a,[role=button]'))"
+                    ".some(e => /push|passcode|bypass|security/i.test((e.innerText||'').trim()))",
+                    timeout=8000,
+                )
+            except Exception:
+                page.wait_for_timeout(3000)  # fallback: fixed 3s wait
             break
         except Exception:
             pass
@@ -545,8 +554,10 @@ def _run_permit_steps(page, structure, cb, dry_run=False):
             cb(f"{sold_out_name} is sold out — automatically switching to {alt_name}...")
             structure = alt_structure
         else:
-            options_str = ", ".join(f"{o['text']}={o['value']}(disabled={o['disabled']})" for o in available_options)
-            raise Exception(f"Both P4 and P7 are sold out — parking is not available today. Raw options: {options_str}")
+            avail = [o['text'] for o in available_options if o['value'] not in ('', 'Select One', '-1')]
+            avail_str = ", ".join(avail) if avail else "none"
+            print(f"[JUSTIN DROPDOWN] Full options: {available_options}", flush=True)
+            raise Exception(f"Both P4 and P7 are sold out — available structures today: {avail_str}.")
 
     dropdown.select_option(structure)
     page.get_by_role("button", name="Next >>").click()
