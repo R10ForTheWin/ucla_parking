@@ -112,7 +112,7 @@ def _handle_duo(page, method, duo_provider, cb):
     _screenshot(page, "duo_start")   # always capture where we are entering Duo
     loc = page   # element interaction target; may be replaced by a FrameLocator
     try:
-        page.wait_for_url(re.compile(r'duosecurity\.com'), timeout=30000)
+        page.wait_for_url(re.compile(r'duosecurity\.com'), timeout=config.PAGE_LOAD_TIMEOUT)
         print(f"[JUSTIN DUO] Redirected to Duo standalone page", flush=True)
     except PwTimeout:
         url = page.url
