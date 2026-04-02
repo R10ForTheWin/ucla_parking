@@ -352,17 +352,42 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
 
     print(f"[JUSTIN POST-DUO] URL: {page.url}", flush=True)
 
-    # If we landed somewhere on bruinepermit other than the permits flow,
-    # navigate directly to per/index.aspx. The session is established at this
-    # point so direct navigation works (unlike before authentication).
+    # If Duo auto-approved (remembered session) and landed us somewhere on bruinepermit
+    # other than per/index.aspx, re-enter via Account/Portal → Get Permits → UCLA Logon.
+    # Direct navigation to per/index.aspx loses the permit category context (shows
+    # quarterly permits instead of 1-Day Student). Going through Get Permits re-establishes it.
     if "bruinepermit.t2hosted.com" in page.url and "per/index.aspx" not in page.url:
-        print(f"[JUSTIN] Navigating directly to per/index.aspx from {page.url}", flush=True)
+        print(f"[JUSTIN] Re-entering permit flow via Account/Portal from {page.url}", flush=True)
+        cb("Setting up permit session...")
         page.goto(
-            "https://bruinepermit.t2hosted.com/per/index.aspx",
+            "https://bruinepermit.t2hosted.com/Account/Portal",
             timeout=config.PAGE_LOAD_TIMEOUT,
             wait_until="domcontentloaded",
         )
-        print(f"[JUSTIN POST-GOTO] URL: {page.url}", flush=True)
+        print(f"[JUSTIN REENTER] Account/Portal URL: {page.url}", flush=True)
+
+        # Click "Get Permits" — establishes 1-Day Student permit context in the session
+        clicked = False
+        for btn_text in ["Get Permits", "Buy Permits", "Purchase Permits", "Permits"]:
+            try:
+                page.get_by_role("button", name=re.compile(btn_text, re.IGNORECASE)).click(timeout=5000)
+                clicked = True
+                break
+            except Exception:
+                pass
+        if not clicked:
+            page.locator("a, button").filter(
+                has_text=re.compile(r"permit", re.IGNORECASE)
+            ).first.click(timeout=10000)
+
+        # SSO session is active — "UCLA Logon" auto-redirects without re-authenticating
+        try:
+            page.get_by_role("button", name="UCLA Logon").click(timeout=8000)
+        except Exception:
+            pass  # May not appear if already redirected
+
+        page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+        print(f"[JUSTIN REENTER] After UCLA Logon: {page.url}", flush=True)
 
     # Step 5: Handle orphaned cart if present
     try:
@@ -385,19 +410,61 @@ def _do_purchase(page, username, password, structure, cb, duo_provider, duo_meth
                     links.last.click()
                     empty_clicked = True
             if not empty_clicked:
+                # Last resort: click Get Permits again to restart the flow cleanly
                 page.goto(
-                    "https://bruinepermit.t2hosted.com/per/index.aspx",
+                    "https://bruinepermit.t2hosted.com/Account/Portal",
                     timeout=config.PAGE_LOAD_TIMEOUT,
                     wait_until="domcontentloaded",
                 )
-            else:
-                page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+                for btn_text in ["Get Permits", "Buy Permits", "Purchase Permits", "Permits"]:
+                    try:
+                        page.get_by_role("button", name=re.compile(btn_text, re.IGNORECASE)).click(timeout=5000)
+                        break
+                    except Exception:
+                        pass
+                try:
+                    page.get_by_role("button", name="UCLA Logon").click(timeout=8000)
+                except Exception:
+                    pass
+            page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+            print(f"[JUSTIN CART] After cart handling: {page.url}", flush=True)
     except Exception:
         pass
 
     # Step 6: Select permit type
     cb("Selecting permit...")
     page.wait_for_url("**/per/index.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
+    page.wait_for_load_state("domcontentloaded")
+
+    # Log per/index.aspx content to understand what permit categories are available
+    try:
+        idx_body = page.inner_text("body")
+        print(f"[JUSTIN INDEX] per/index.aspx body:\n{idx_body[:800]}", flush=True)
+        radios = page.get_by_role("radio").all()
+        for r in radios:
+            rid = r.get_attribute("id") or ""
+            val = r.get_attribute("value") or ""
+            lbl = page.locator(f"label[for='{rid}']").first.inner_text() if rid else ""
+            print(f"[JUSTIN INDEX] Radio id={rid} value={val} label={lbl!r}", flush=True)
+        selects = page.locator("select").all()
+        for sel in selects:
+            sel_name = sel.get_attribute("name") or sel.get_attribute("id") or ""
+            opts = sel.evaluate("el => Array.from(el.options).map(o => ({value: o.value, text: o.text}))")
+            print(f"[JUSTIN INDEX] Select {sel_name!r}: {opts}", flush=True)
+    except Exception as e:
+        print(f"[JUSTIN INDEX] Log error: {e}", flush=True)
+
+    # Select the daily/1-day permit category on per/index.aspx if a choice is present
+    for pattern in ["1-Day", "Daily", "Student", "Temporary"]:
+        try:
+            radio = page.get_by_role("radio", name=re.compile(pattern, re.IGNORECASE))
+            if radio.count() > 0:
+                print(f"[JUSTIN INDEX] Selecting permit category radio: {pattern}", flush=True)
+                radio.first.check()
+                break
+        except Exception:
+            pass
+
     page.get_by_role("button", name="Next >>").click()
     page.wait_for_url("**/per/selectpermit.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
 
