@@ -188,8 +188,16 @@ def _handle_duo(page, method, duo_provider, cb):
                 "Go to Setup and double-check your credentials."
             )
 
+        # Log ALL iframes so we can see exactly what's on the page
+        try:
+            all_iframes = page.evaluate("""() => Array.from(document.querySelectorAll('iframe')).map(f => ({
+                id: f.id, name: f.name, src: f.src, title: f.title, className: f.className
+            }))""")
+            print(f"[JUSTIN DUO] All iframes on page: {all_iframes}", flush=True)
+        except Exception:
+            pass
+
         # Check for embedded Duo iframe (classic Shibboleth-Duo integration)
-        iframe_found = False
         for iframe_sel in [
             "iframe#duo_iframe",
             "iframe[id*='duo']",
@@ -200,14 +208,11 @@ def _handle_duo(page, method, duo_provider, cb):
             if page.locator(iframe_sel).count() > 0:
                 print(f"[JUSTIN DUO] Found embedded Duo iframe: {iframe_sel}", flush=True)
                 loc = page.frame_locator(iframe_sel)
-                iframe_found = True
                 break
-
-        if not iframe_found:
-            raise Exception(
-                f"DUO page did not load (still on {url}). "
-                "Check your UCLA credentials and try again."
-            )
+        else:
+            # No iframe found — Duo may be embedded as a div (Web SDK v4 / Universal Prompt
+            # inline). Keep loc = page and try interacting with the page directly.
+            print(f"[JUSTIN DUO] No Duo iframe found — trying page-level interaction", flush=True)
 
     page.wait_for_load_state("networkidle")
 
