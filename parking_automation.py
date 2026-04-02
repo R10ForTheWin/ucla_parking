@@ -288,7 +288,7 @@ def _handle_duo(page, method, duo_provider, cb):
             method = "passcode"
         else:
             duo_provider()
-            page.wait_for_url("**/bruinepermit.t2hosted.com/**", timeout=config.PAGE_LOAD_TIMEOUT)
+            page.wait_for_url("**/bruinepermit.t2hosted.com/**", timeout=config.DUO_WAIT_TIMEOUT * 1000)
             cb("DUO verified!")
             return
 
