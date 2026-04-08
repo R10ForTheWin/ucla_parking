@@ -326,9 +326,96 @@
     .notif-toggle-label { flex: 1; padding-right: 16px; }
     .notif-toggle-label .ntl-title { font-size: 15px; font-weight: 600; color: var(--text); }
     .notif-toggle-label .ntl-sub   { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+    /* Homescreen prompt modal */
+    #homescreen-modal {
+      display: none;
+      position: fixed; inset: 0; z-index: 9999;
+      background: rgba(0,0,0,0.55);
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: max(24px, env(safe-area-inset-bottom, 24px));
+    }
+    #homescreen-modal.visible { display: flex; }
+    .homescreen-sheet {
+      background: white;
+      border-radius: 22px;
+      padding: 28px 24px 24px;
+      max-width: 420px;
+      width: calc(100% - 32px);
+      text-align: center;
+      animation: sheet-up 0.3s ease;
+    }
+    @keyframes sheet-up {
+      from { transform: translateY(40px); opacity: 0; }
+      to   { transform: translateY(0);   opacity: 1; }
+    }
+    .homescreen-title {
+      font-size: 20px; font-weight: 700;
+      color: var(--text); margin-bottom: 6px;
+    }
+    .homescreen-sub {
+      font-size: 14px; color: var(--muted);
+      margin-bottom: 22px; line-height: 1.5;
+    }
+    .homescreen-steps {
+      text-align: left;
+      background: var(--bg);
+      border-radius: 14px;
+      padding: 16px 18px;
+      margin-bottom: 22px;
+    }
+    .homescreen-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.4;
+    }
+    .homescreen-step + .homescreen-step { margin-top: 14px; }
+    .homescreen-step-num {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: var(--blue);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
   </style>
 </head>
 <body>
+
+<!-- ═══════════════════════════════════════════ HOMESCREEN PROMPT -->
+<div id="homescreen-modal">
+  <div class="homescreen-sheet">
+    <div class="homescreen-title">Add Justin to Your Home Screen</div>
+    <div class="homescreen-sub">Get quick one-tap access — no App Store needed.</div>
+    <div class="homescreen-steps">
+      <div class="homescreen-step">
+        <div class="homescreen-step-num">1</div>
+        <div>Tap the <strong>Share</strong> button&nbsp;
+          <svg width="18" height="20" viewBox="0 0 18 20" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;margin-bottom:2px;">
+            <path d="M9 13V1M9 1L5.5 4.5M9 1L12.5 4.5" stroke="#007AFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M1 10V17C1 18.1046 1.89543 19 3 19H15C16.1046 19 17 18.1046 17 17V10" stroke="#007AFF" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          &nbsp;at the bottom of Safari</div>
+      </div>
+      <div class="homescreen-step">
+        <div class="homescreen-step-num">2</div>
+        <div>Scroll down and tap <strong>"Add to Home Screen"</strong></div>
+      </div>
+      <div class="homescreen-step">
+        <div class="homescreen-step-num">3</div>
+        <div>Tap <strong>Add</strong> — done! Justin lives on your home screen.</div>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="dismissHomescreenPrompt()">Got It</button>
+  </div>
+</div>
 
 <!-- ═══════════════════════════════════════════ SETUP -->
 <div class="screen" id="screen-setup">
@@ -1050,6 +1137,24 @@ function shareApp() {
   }
 }
 
+// ── Homescreen prompt ──────────────────────────────────────────────────────
+function dismissHomescreenPrompt() {
+  localStorage.setItem('justin_hs_prompt_seen', '1');
+  document.getElementById('homescreen-modal').classList.remove('visible');
+}
+
+function maybeShowHomescreenPrompt() {
+  // Only show in mobile Safari (not already installed as PWA)
+  const isMobileSafari = /iP(hone|od|ad)/.test(navigator.userAgent) && /WebKit/.test(navigator.userAgent) && !/CriOS|FxiOS/.test(navigator.userAgent);
+  const isStandalone = window.navigator.standalone === true;
+  const alreadySeen = localStorage.getItem('justin_hs_prompt_seen');
+  if (isMobileSafari && !isStandalone && !alreadySeen) {
+    setTimeout(() => {
+      document.getElementById('homescreen-modal').classList.add('visible');
+    }, 1200);
+  }
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 (function init() {
   // ?preview=purchased → inject a fake purchase record so the banner is visible
@@ -1070,6 +1175,7 @@ function shareApp() {
   }
   _syncSubscription();
   _updateNotifButton();
+  maybeShowHomescreenPrompt();
 })();
 </script>
 </body>
