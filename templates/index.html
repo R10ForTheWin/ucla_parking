@@ -514,9 +514,8 @@
     </div>
     <div id="notif-err" style="display:none;font-size:13px;color:var(--error);margin:-8px 0 12px 4px;"></div>
 
-    <div id="purchased-banner" style="display:none;background:rgba(45,198,83,0.12);border:1.5px solid var(--success);border-radius:14px;padding:14px 18px;margin-bottom:16px;text-align:left;">
-      <div style="font-size:15px;font-weight:700;color:var(--success);margin-bottom:4px;">✅ Permit Purchased Today</div>
-      <div id="purchased-detail" style="font-size:13px;color:var(--muted);"></div>
+    <div id="purchased-banner" style="display:none;text-align:center;margin-bottom:12px;">
+      <div id="purchased-detail" style="font-size:14px;color:var(--muted);"></div>
     </div>
 
     <button class="btn btn-gold btn-lg" id="buy-btn" onclick="startBuy()">Buy Parking Today 🅿️</button>
@@ -740,8 +739,7 @@ function loadHome() {
     const rec = JSON.parse(localStorage.getItem('justin_last_purchase') || 'null');
     if (rec && rec.date === today) {
       banner.style.display = 'block';
-      const parts = ['Yellow 1-Day Student', rec.time ? `Purchased at ${rec.time}` : null, rec.detail || null];
-      document.getElementById('purchased-detail').textContent = parts.filter(Boolean).join(' · ');
+      document.getElementById('purchased-detail').textContent = rec.time ? `✅ Permit purchased at ${rec.time}` : '✅ Permit purchased today';
       buyBtn.textContent = 'Buy Again Today 🅿️';
       buyBtn.style.opacity = '0.6';
     } else {
