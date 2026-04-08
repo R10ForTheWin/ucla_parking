@@ -298,11 +298,10 @@
     }
     .next-day-info { flex: 1; min-width: 0; }
     .next-day-label {
-      font-size: 11px;
+      font-size: 15px;
       font-weight: 700;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
+      color: var(--text);
+      letter-spacing: 0;
       margin-bottom: 3px;
     }
     .next-day-date {
@@ -800,14 +799,14 @@ function updateNextDayCard() {
   if (daysAway === 0) {
     labelEl.textContent  = 'Today is a School Day';
     dateEl.textContent   = '';
-    subEl.textContent    = 'Notification sent at 6:00 AM';
+    subEl.textContent    = '';
     classEl.textContent  = classLabel;
     countEl.textContent  = '';
     countLbl.textContent = '';
   } else {
     labelEl.textContent  = 'Next School Day';
     dateEl.textContent   = '';
-    subEl.textContent    = 'Notification at 6:00 AM';
+    subEl.textContent    = '';
     classEl.textContent  = classLabel;
     countEl.textContent  = daysAway;
     countLbl.textContent = daysAway === 1 ? 'day' : 'days';
