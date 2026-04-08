@@ -368,7 +368,7 @@ def _verify_purchase_success(page):
                         "permit number", "issued", "approved", "thank you", "order"]:
             if pattern.lower() in body.lower():
                 match = re.search(
-                    r'(?:confirmation|receipt|transaction|permit|order)\s*(?:#|number|no)?[:\s]*(\w+)',
+                    r'(?:confirmation|receipt|transaction|permit|order)\s*(?:#|number|no)[:\s]*(\w{3,})',
                     body, re.IGNORECASE
                 )
                 if match:
@@ -430,27 +430,58 @@ def _run_permit_steps(page, structure, cb, dry_run=False):
     Called from both the full flow and the cached-session fast path.
     """
     # Step 5: Handle orphaned cart
+    # T2 shows a "choose your basket" page when a previous session was abandoned.
+    # It lists the old cart (with items + price) and an empty basket ($0.00).
+    # Selecting the $0.00 row discards the orphan and starts fresh.
     try:
         body = page.inner_text("body")
-        if ("orphan" in page.url.lower() or "basket" in page.url.lower()
-                or "Previous Basket" in body):
+        url_lower = page.url.lower()
+        ORPHAN_SIGNALS = [
+            "orphan" in url_lower,
+            "basket" in url_lower,
+            "previous basket" in body.lower(),
+            "previous session" in body.lower(),
+            "pending transaction" in body.lower(),
+            "incomplete transaction" in body.lower(),
+            "existing cart" in body.lower(),
+        ]
+        if any(ORPHAN_SIGNALS):
+            print(f"[JUSTIN CART] Orphan detected. URL: {page.url}", flush=True)
+            print(f"[JUSTIN CART] Body snippet:\n{body[:600]}", flush=True)
             cb("Clearing previous cart...")
             empty_clicked = False
+
+            # Primary: find the $0.00 row and click its Select link (empty basket option)
             rows = page.locator("table tr").all()
             for row in rows:
-                if "$0.00" in row.inner_text():
-                    link = row.get_by_role("link", name=re.compile(r"select", re.IGNORECASE))
-                    if link.count() > 0:
-                        link.first.click()
-                        empty_clicked = True
-                        break
+                try:
+                    row_text = row.inner_text()
+                    if "$0.00" in row_text or "0.00" in row_text:
+                        link = row.get_by_role("link", name=re.compile(r"select", re.IGNORECASE))
+                        if link.count() > 0:
+                            print(f"[JUSTIN CART] Clicking $0.00 empty-basket row", flush=True)
+                            link.first.click()
+                            empty_clicked = True
+                            break
+                except Exception:
+                    continue
+
+            # Fallback: look for a link explicitly labeled new/empty/discard/clear
             if not empty_clicked:
-                links = page.get_by_role("link", name=re.compile(r"select", re.IGNORECASE))
-                if links.count() > 0:
-                    links.last.click()
-                    empty_clicked = True
+                for label in [r"new\s+transaction", r"empty\s+cart", r"discard", r"clear\s+cart", r"start\s+new"]:
+                    try:
+                        link = page.get_by_role("link", name=re.compile(label, re.IGNORECASE))
+                        if link.count() > 0:
+                            print(f"[JUSTIN CART] Clicking discard link: {label}", flush=True)
+                            link.first.click()
+                            empty_clicked = True
+                            break
+                    except Exception:
+                        continue
+
             if not empty_clicked:
-                # Last resort: re-enter via Account/Portal
+                # Last resort: hard-navigate back to Account/Portal to bypass the cart entirely
+                print(f"[JUSTIN CART] Could not clear orphan — re-entering via Account/Portal", flush=True)
                 page.goto(
                     "https://bruinepermit.t2hosted.com/Account/Portal",
                     timeout=config.PAGE_LOAD_TIMEOUT,
@@ -466,10 +497,11 @@ def _run_permit_steps(page, structure, cb, dry_run=False):
                     page.get_by_role("button", name="UCLA Logon").click(timeout=8000)
                 except Exception:
                     pass
+
             page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
             print(f"[JUSTIN CART] After cart handling: {page.url}", flush=True)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[JUSTIN CART] Orphan check error (non-fatal): {e}", flush=True)
 
     # Step 6: Select permit type
     cb("Selecting permit...")
@@ -584,7 +616,19 @@ def _run_permit_steps(page, structure, cb, dry_run=False):
 
     # Step 9: Process transaction
     cb("Processing transaction — this can take up to 30 seconds...")
+    pre_purchase_url = page.url
     page.get_by_role("button", name="Proceed with Transaction").click()
+
+    # Wait for the page to navigate away from the purchase form before verifying.
+    # Without this, _verify_purchase_success may read the pre-purchase page body
+    # and match keywords like "permit" or "successfully" that were already there.
+    try:
+        page.wait_for_function(
+            f"() => window.location.href !== '{pre_purchase_url}'",
+            timeout=config.PAGE_LOAD_TIMEOUT,
+        )
+    except Exception:
+        pass  # URL didn't change — _verify_purchase_success will still check and likely fail cleanly
 
     result = _verify_purchase_success(page)
     if result:

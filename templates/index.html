@@ -270,9 +270,31 @@
       align-items: center;
       gap: 16px;
     }
-    .next-day-icon {
-      font-size: 32px;
+    .cal-icon {
+      width: 48px;
       flex-shrink: 0;
+      border-radius: 13px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.22);
+    }
+    .cal-icon-month {
+      background: #2774AE;
+      color: #FFD100;
+      font-size: 13px;
+      font-weight: 700;
+      text-align: center;
+      padding: 4px 0 3px;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .cal-icon-day {
+      background: #fff;
+      color: #2774AE;
+      font-size: 26px;
+      font-weight: 400;
+      text-align: center;
+      padding: 4px 0 6px;
+      line-height: 1;
     }
     .next-day-info { flex: 1; min-width: 0; }
     .next-day-label {
@@ -463,21 +485,20 @@
       <button class="edit-link" onclick="openSetup()">Edit</button>
     </div>
 
-    <div style="text-align:center;margin-bottom:20px;">
-      <div class="day-badge" id="day-badge">Checking schedule...</div>
-      <div style="font-size:14px;color:var(--muted);margin-top:4px;" id="day-detail"></div>
-    </div>
-
     <div id="next-day-card" class="next-day-card">
-      <div class="next-day-icon">📅</div>
+      <div class="cal-icon">
+        <div class="cal-icon-month" id="next-day-cal-month">—</div>
+        <div class="cal-icon-day" id="next-day-cal-day">—</div>
+      </div>
       <div class="next-day-info">
         <div class="next-day-label" id="next-day-label">Next School Day</div>
         <div class="next-day-date" id="next-day-date">—</div>
         <div class="next-day-sub" id="next-day-sub">Notification at 6:00 AM</div>
       </div>
-      <div>
-        <div class="next-day-countdown" id="next-day-count">—</div>
-        <div class="next-day-countdown-label" id="next-day-count-label">days</div>
+      <div style="text-align:center;flex-shrink:0;min-width:52px;">
+        <div id="next-day-class" style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:0.3px;line-height:1.3;"></div>
+        <div class="next-day-countdown" id="next-day-count"></div>
+        <div class="next-day-countdown-label" id="next-day-count-label"></div>
       </div>
     </div>
 
@@ -588,7 +609,7 @@
     <div class="result-icon" id="success-icon">✅</div>
     <div class="result-title" id="success-title">You're Parked!</div>
     <div class="result-msg" id="success-msg">Parking purchased successfully.</div>
-    <button class="btn btn-primary result-btn" onclick="show('home')">Done</button>
+    <button class="btn btn-primary result-btn" onclick="loadHome();show('home')">Done</button>
     <button class="btn btn-outline" onclick="shareApp()" style="margin-top:10px;width:280px">Share Justin EMBAlake App With A Classmate</button>
   </div>
 </div>
@@ -708,21 +729,7 @@ function loadHome() {
   document.getElementById('home-avatar').textContent  = p.username ? p.username[0].toUpperCase() : '?';
   document.getElementById('home-username').textContent = p.username || 'Not configured';
 
-  // Check if today is a class day (Pacific time)
-  // en-CA locale gives YYYY-MM-DD format directly in the specified timezone
-  const today  = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-  const badge  = document.getElementById('day-badge');
-  const detail = document.getElementById('day-detail');
-
-  if (PARKING_DATES.has(today)) {
-    badge.textContent = '🎓 Class Day';
-    badge.className   = 'day-badge class-day';
-    detail.textContent = 'Parking is available today';
-  } else {
-    badge.textContent = 'No Class Today';
-    badge.className   = 'day-badge no-class';
-    detail.textContent = 'Come back on a class day';
-  }
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
 
   updateNextDayCard();
 
@@ -755,18 +762,20 @@ function updateNextDayCard() {
   // Find next upcoming date (today counts if it's a class day)
   const upcoming = sortedDates.find(d => d >= today);
 
-  const labelEl  = document.getElementById('next-day-label');
-  const dateEl   = document.getElementById('next-day-date');
-  const subEl    = document.getElementById('next-day-sub');
-  const countEl  = document.getElementById('next-day-count');
-  const countLbl = document.getElementById('next-day-count-label');
-  const iconEl   = document.querySelector('#next-day-card .next-day-icon');
+  const labelEl    = document.getElementById('next-day-label');
+  const dateEl     = document.getElementById('next-day-date');
+  const subEl      = document.getElementById('next-day-sub');
+  const countEl    = document.getElementById('next-day-count');
+  const countLbl   = document.getElementById('next-day-count-label');
+  const calMonthEl = document.getElementById('next-day-cal-month');
+  const calDayEl   = document.getElementById('next-day-cal-day');
+  const classEl    = document.getElementById('next-day-class');
 
   if (!upcoming) {
     labelEl.textContent  = 'No upcoming school days';
     dateEl.textContent   = '—';
     subEl.textContent    = '';
-    countEl.textContent  = '—';
+    countEl.textContent  = '';
     countLbl.textContent = '';
     return;
   }
@@ -778,28 +787,33 @@ function updateNextDayCard() {
   const u = new Date(upcomingParts[0], upcomingParts[1] - 1, upcomingParts[2]);
   const daysAway = Math.round((u - t) / 86400000);
 
-  const formatted = u.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const formatted = u.toLocaleDateString('en-US', { weekday: 'long' });
 
-  const classNote = AI_MANAGERS_DATES.has(upcoming)
-    ? ' · AI for Managers'
+  const classLabel = AI_MANAGERS_DATES.has(upcoming)
+    ? 'AI for Managers'
     : EVI_DATES.has(upcoming)
-    ? ' · EVI elective'
+    ? 'EVI elective'
     : '';
+
+  // Apple Calendar icon
+  const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  calMonthEl.textContent = MONTHS[u.getMonth()];
+  calDayEl.textContent   = u.getDate();
 
   if (daysAway === 0) {
     labelEl.textContent  = 'Today is a School Day';
-    dateEl.textContent   = formatted + classNote;
+    dateEl.textContent   = formatted;
     subEl.textContent    = 'Notification sent at 6:00 AM';
-    countEl.textContent  = '🎓';
-    countLbl.textContent = 'today';
-    if (iconEl) iconEl.textContent = '🎉';
+    classEl.textContent  = classLabel;
+    countEl.textContent  = '';
+    countLbl.textContent = '';
   } else {
     labelEl.textContent  = 'Next School Day';
-    dateEl.textContent   = formatted + classNote;
+    dateEl.textContent   = formatted;
     subEl.textContent    = 'Notification at 6:00 AM';
+    classEl.textContent  = classLabel;
     countEl.textContent  = daysAway;
     countLbl.textContent = daysAway === 1 ? 'day' : 'days';
-    if (iconEl) iconEl.textContent = '📅';
   }
 }
 
