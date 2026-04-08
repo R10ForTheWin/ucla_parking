@@ -406,7 +406,12 @@
     </div>
     <div id="notif-err" style="display:none;font-size:13px;color:var(--error);margin:-8px 0 12px 4px;"></div>
 
-    <button class="btn btn-gold btn-lg" onclick="startBuy()">Buy Parking Today 🅿️</button>
+    <div id="purchased-banner" style="display:none;background:rgba(45,198,83,0.12);border:1.5px solid var(--success);border-radius:14px;padding:14px 18px;margin-bottom:16px;text-align:left;">
+      <div style="font-size:15px;font-weight:700;color:var(--success);margin-bottom:4px;">✅ Permit Purchased Today</div>
+      <div id="purchased-detail" style="font-size:13px;color:var(--muted);"></div>
+    </div>
+
+    <button class="btn btn-gold btn-lg" id="buy-btn" onclick="startBuy()">Buy Parking Today 🅿️</button>
     <p class="note" style="margin-top:20px">Yellow 1-Day Student · $8.01 · Payment on file</p>
   </div>
 </div>
@@ -633,6 +638,26 @@ function loadHome() {
   }
 
   updateNextDayCard();
+
+  // Show "already purchased" banner if we bought parking today
+  const banner = document.getElementById('purchased-banner');
+  const buyBtn = document.getElementById('buy-btn');
+  try {
+    const rec = JSON.parse(localStorage.getItem('justin_last_purchase') || 'null');
+    if (rec && rec.date === today) {
+      banner.style.display = 'block';
+      const parts = ['Yellow 1-Day Student', rec.time ? `Purchased at ${rec.time}` : null, rec.detail || null];
+      document.getElementById('purchased-detail').textContent = parts.filter(Boolean).join(' · ');
+      buyBtn.textContent = 'Buy Again Today 🅿️';
+      buyBtn.style.opacity = '0.6';
+    } else {
+      banner.style.display = 'none';
+      buyBtn.textContent = 'Buy Parking Today 🅿️';
+      buyBtn.style.opacity = '';
+    }
+  } catch(e) {
+    banner.style.display = 'none';
+  }
 }
 
 // ── Next school day card ───────────────────────────────────────────────────
@@ -890,6 +915,11 @@ function handleSuccess(result) {
       'Parking purchased successfully.' + (detail ? '\n' + detail : '');
     document.getElementById('success-icon').style.display = 'none';
     document.getElementById('success-gif-wrap').style.display = 'block';
+
+    // Save purchase record so home screen can show it
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    const timeStr = new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' });
+    localStorage.setItem('justin_last_purchase', JSON.stringify({ date: today, time: timeStr, detail }));
   }
   show('success');
 }
