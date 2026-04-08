@@ -335,7 +335,7 @@ def _do_purchase(page, username, password, plate, structure, chat_id, dry_run=Fa
 
     print("Confirming purchase...")
     bot.send_message(chat_id, "Processing transaction...")
-    page.get_by_role("button", name="Process Transaction").click()
+    page.get_by_role("button", name="Proceed with Transaction").click()
 
     # Verify purchase succeeded
     result = _verify_purchase_success(page)

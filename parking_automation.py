@@ -575,7 +575,7 @@ def _run_permit_steps(page, structure, cb, dry_run=False):
 
     # Step 9: Process transaction
     cb("Processing transaction — this can take up to 30 seconds...")
-    page.get_by_role("button", name="Process Transaction").click()
+    page.get_by_role("button", name="Proceed with Transaction").click()
 
     result = _verify_purchase_success(page)
     if result:
