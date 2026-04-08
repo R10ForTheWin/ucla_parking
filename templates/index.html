@@ -785,7 +785,6 @@ function updateNextDayCard() {
   const u = new Date(upcomingParts[0], upcomingParts[1] - 1, upcomingParts[2]);
   const daysAway = Math.round((u - t) / 86400000);
 
-  const formatted = u.toLocaleDateString('en-US', { weekday: 'long' });
 
   const classLabel = AI_MANAGERS_DATES.has(upcoming)
     ? 'AI for Managers'
@@ -800,14 +799,14 @@ function updateNextDayCard() {
 
   if (daysAway === 0) {
     labelEl.textContent  = 'Today is a School Day';
-    dateEl.textContent   = formatted;
+    dateEl.textContent   = '';
     subEl.textContent    = 'Notification sent at 6:00 AM';
     classEl.textContent  = classLabel;
     countEl.textContent  = '';
     countLbl.textContent = '';
   } else {
     labelEl.textContent  = 'Next School Day';
-    dateEl.textContent   = formatted;
+    dateEl.textContent   = '';
     subEl.textContent    = 'Notification at 6:00 AM';
     classEl.textContent  = classLabel;
     countEl.textContent  = daysAway;
