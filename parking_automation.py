@@ -565,7 +565,7 @@ def _run_permit_steps(page, structure, cb, dry_run=False):
                             and o['value'] not in ('', 'Select One', '-1', '0')]
             if len(real_options) == 1:
                 print(f"[JUSTIN DROPDOWN] Config values outdated — using only available option: {real_options[0]}", flush=True)
-                cb(f"Using available structure: {real_options[0]['text']} (config values may need updating)")
+                cb(f"Selecting {real_options[0]['text']}...")
                 structure = real_options[0]['value']
             else:
                 avail = [o['text'] for o in real_options]
