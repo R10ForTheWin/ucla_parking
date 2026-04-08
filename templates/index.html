@@ -502,7 +502,14 @@
       </div>
     </div>
 
-    <div id="notif-row" class="notif-toggle-row" style="display:none;" onclick="toggleNotifications()">
+    <div id="purchased-banner" style="display:none;text-align:center;margin-bottom:12px;">
+      <div id="purchased-detail" style="font-size:14px;color:var(--muted);"></div>
+    </div>
+
+    <button class="btn btn-gold btn-lg" id="buy-btn" onclick="startBuy()">Buy Parking Today 🅿️</button>
+    <p class="note" style="margin-top:20px">Yellow 1-Day Student · $8.01 · Payment on file</p>
+
+    <div id="notif-row" class="notif-toggle-row" style="display:none;margin-top:24px;" onclick="toggleNotifications()">
       <div class="notif-toggle-label">
         <div class="ntl-title">Notifications</div>
         <div id="notif-sub" class="ntl-sub">Receive notification on school mornings</div>
@@ -512,14 +519,7 @@
         <span id="notif-toggle-knob"   style="position:absolute;top:3px;left:3px;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform .2s;display:block;box-shadow:0 1px 3px rgba(0,0,0,.25);"></span>
       </div>
     </div>
-    <div id="notif-err" style="display:none;font-size:13px;color:var(--error);margin:-8px 0 12px 4px;"></div>
-
-    <div id="purchased-banner" style="display:none;text-align:center;margin-bottom:12px;">
-      <div id="purchased-detail" style="font-size:14px;color:var(--muted);"></div>
-    </div>
-
-    <button class="btn btn-gold btn-lg" id="buy-btn" onclick="startBuy()">Buy Parking Today 🅿️</button>
-    <p class="note" style="margin-top:20px">Yellow 1-Day Student · $8.01 · Payment on file</p>
+    <div id="notif-err" style="display:none;font-size:13px;color:var(--error);margin:4px 0 0 4px;"></div>
   </div>
 </div>
 
