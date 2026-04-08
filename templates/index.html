@@ -1052,6 +1052,15 @@ function shareApp() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 (function init() {
+  // ?preview=purchased → inject a fake purchase record so the banner is visible
+  if (new URLSearchParams(location.search).get('preview') === 'purchased') {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    localStorage.setItem('justin_last_purchase', JSON.stringify({
+      date: today, time: '8:03 AM', detail: 'Purchase confirmed'
+    }));
+    history.replaceState(null, '', location.pathname); // clean up URL
+  }
+
   const p = getProfile();
   if (p.username && p.password) {
     loadHome();
