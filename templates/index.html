@@ -477,7 +477,7 @@
   </div>
   <div class="content">
     <div class="profile-badge">
-      <div class="avatar" id="home-avatar">?</div>
+      <img src="/static/bruin.png" alt="Bruin" class="avatar" style="object-fit:cover;padding:2px;background:#fff;">
       <div class="profile-info">
         <div class="profile-name" id="home-username">—</div>
         <div class="profile-sub">Vehicle on file at UCLA</div>
@@ -726,7 +726,7 @@ function saveSetup() {
 // ── Home screen ────────────────────────────────────────────────────────────
 function loadHome() {
   const p = getProfile();
-  document.getElementById('home-avatar').textContent  = p.username ? p.username[0].toUpperCase() : '?';
+  // avatar is now a static bruin image — no dynamic text needed
   document.getElementById('home-username').textContent = p.username || 'Not configured';
 
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
