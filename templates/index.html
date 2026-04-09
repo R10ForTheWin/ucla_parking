@@ -263,7 +263,7 @@
     .next-day-card {
       background: var(--card);
       border-radius: var(--radius);
-      padding: 18px 20px;
+      padding: 18px;
       box-shadow: 0 2px 12px rgba(0,0,0,0.08);
       margin-bottom: 16px;
       display: flex;
@@ -298,11 +298,12 @@
     }
     .next-day-info { flex: 1; min-width: 0; }
     .next-day-label {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
       color: var(--text);
       letter-spacing: 0;
       margin-bottom: 3px;
+      white-space: nowrap;
     }
     .next-day-date {
       font-size: 16px;
@@ -501,7 +502,7 @@
       </div>
     </div>
 
-    <button class="btn btn-gold btn-lg" id="buy-btn" onclick="startBuy()" style="text-align:left;">🅿️ Buy Parking Today</button>
+    <button class="btn btn-gold btn-lg" id="buy-btn" onclick="startBuy()" style="text-align:left;padding-left:18px;">🅿️ Buy Parking Today</button>
     <p class="note" style="margin-top:20px">Yellow 1-Day Student · $8.01 · Payment on file</p>
 
     <div id="notif-row" class="notif-toggle-row" style="display:none;margin-top:24px;" onclick="toggleNotifications()">
