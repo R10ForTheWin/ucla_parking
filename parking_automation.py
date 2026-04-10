@@ -615,20 +615,41 @@ def _run_permit_steps(page, structure, cb, dry_run=False):
         return "dry_run"
 
     # Step 9: Process transaction
+    # The checkout flow has two steps on the same URL (crt/collect.aspx):
+    #   9a. "Select Payment Method" → click "Proceed with Transaction"
+    #   9b. "Payment Information"   → click "Complete Transaction"
     cb("Processing transaction — this can take up to 30 seconds...")
     pre_purchase_url = page.url
     page.get_by_role("button", name="Proceed with Transaction").click()
 
-    # Wait for the page to navigate away from the purchase form before verifying.
-    # Without this, _verify_purchase_success may read the pre-purchase page body
-    # and match keywords like "permit" or "successfully" that were already there.
+    # Let the page settle (may stay on the same URL with new content)
     try:
-        page.wait_for_function(
-            f"() => window.location.href !== '{pre_purchase_url}'",
-            timeout=config.PAGE_LOAD_TIMEOUT,
-        )
+        page.wait_for_load_state("networkidle", timeout=config.PAGE_LOAD_TIMEOUT)
     except Exception:
-        pass  # URL didn't change — _verify_purchase_success will still check and likely fail cleanly
+        pass
+
+    # Check if we landed on the payment review step (same URL, "Complete Transaction" button)
+    complete_btn = page.get_by_role("button", name="Complete Transaction")
+    if complete_btn.count() > 0:
+        print(f"[JUSTIN VERIFY] Payment review step detected — clicking Complete Transaction", flush=True)
+        cb("Completing transaction...")
+        _screenshot(page, "pre_complete")
+        complete_btn.click()
+        # Now wait for navigation to the confirmation page
+        try:
+            page.wait_for_function(
+                f"() => window.location.href !== '{pre_purchase_url}'",
+                timeout=config.PAGE_LOAD_TIMEOUT,
+            )
+        except Exception:
+            print(f"[JUSTIN VERIFY] URL did not change after clicking Complete Transaction — still at {page.url}", flush=True)
+            raise Exception("Payment did not advance after clicking 'Complete Transaction' — check manually: https://bruinepermit.t2hosted.com")
+    else:
+        # No "Complete Transaction" button — expect "Proceed" to have navigated directly to confirmation.
+        # If the URL is still the same as before, the button click failed.
+        if page.url == pre_purchase_url:
+            print(f"[JUSTIN VERIFY] URL did not change after clicking Proceed — still at {page.url}", flush=True)
+            raise Exception("Payment page did not advance — check manually: https://bruinepermit.t2hosted.com")
 
     result = _verify_purchase_success(page)
     if result:
