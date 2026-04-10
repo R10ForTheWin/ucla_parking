@@ -502,9 +502,12 @@
       </div>
     </div>
 
-    <button class="btn btn-gold btn-lg" id="buy-btn" onclick="startBuy()" style="text-align:left;padding-left:18px;display:flex;flex-direction:column;gap:2px;">
-      <span>🅿️ Buy Parking Today</span>
-      <span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $8.01 · Payment on file</span>
+    <button class="btn btn-gold btn-lg" id="buy-btn" onclick="startBuy()" style="display:flex;flex-direction:row;align-items:center;gap:16px;padding:0 18px;">
+      <span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span>
+      <div style="display:flex;flex-direction:column;gap:2px;text-align:left;">
+        <span style="font-size:17px;font-weight:800;">Buy Parking Today</span>
+        <span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $8.01 · Payment on file</span>
+      </div>
     </button>
 
     <div id="notif-row" class="notif-toggle-row" style="display:none;margin-top:24px;" onclick="toggleNotifications()">
@@ -736,14 +739,14 @@ function loadHome() {
     const rec = JSON.parse(localStorage.getItem('justin_last_purchase') || 'null');
     if (rec && rec.date === today) {
       const timeStr = rec.time ? `Purchased at ${rec.time}` : 'Purchased today';
-      buyBtn.innerHTML = `<div style="font-size:17px;font-weight:800">🅿️ Permit Purchased</div><div style="font-size:12px;font-weight:500;opacity:0.85;margin-top:3px">${timeStr} · Tap to buy again</div>`;
+      buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Permit Purchased</span><span style="font-size:12px;font-weight:500;opacity:0.85;">${timeStr} · Tap to buy again</span></div>`;
       buyBtn.style.opacity = '';
     } else {
-      buyBtn.textContent = '🅿️ Buy Parking Today';
+      buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Buy Parking Today</span><span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $8.01 · Payment on file</span></div>`;
       buyBtn.style.opacity = '';
     }
   } catch(e) {
-    buyBtn.innerHTML = '🅿️ Buy Parking Today';
+    buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Buy Parking Today</span><span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $8.01 · Payment on file</span></div>`;
   }
 }
 
