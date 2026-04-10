@@ -241,7 +241,7 @@ def api_buy():
                         result={"dry_run": True})
             else:
                 _update(jid, status="done",
-                        message="Parking purchased!",
+                        message="Parking purchased! Check your inbox for a confirmation email.",
                         result={"dry_run": False, "detail": result})
 
         except Exception as e:

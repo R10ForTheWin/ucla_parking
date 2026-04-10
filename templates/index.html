@@ -1003,7 +1003,7 @@ function handleSuccess(result) {
     const detail = (result && result.detail) ? result.detail : '';
     document.getElementById('success-title').textContent = "You're Parked! 🅿️";
     document.getElementById('success-msg').textContent   =
-      'Parking purchased successfully.' + (detail ? '\n' + detail : '');
+      'Parking purchased successfully. Check your inbox for a confirmation email.' + (detail ? '\n' + detail : '');
     document.getElementById('success-icon').style.display = 'none';
     document.getElementById('success-gif-wrap').style.display = 'block';
 
