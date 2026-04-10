@@ -502,8 +502,10 @@
       </div>
     </div>
 
-    <button class="btn btn-gold btn-lg" id="buy-btn" onclick="startBuy()" style="text-align:left;padding-left:18px;">🅿️ Buy Parking Today</button>
-    <p class="note" style="margin-top:20px">Yellow 1-Day Student · $8.01 · Payment on file</p>
+    <button class="btn btn-gold btn-lg" id="buy-btn" onclick="startBuy()" style="text-align:left;padding-left:18px;display:flex;flex-direction:column;gap:2px;">
+      <span>🅿️ Buy Parking Today</span>
+      <span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $8.01 · Payment on file</span>
+    </button>
 
     <div id="notif-row" class="notif-toggle-row" style="display:none;margin-top:24px;" onclick="toggleNotifications()">
       <div style="position:relative;width:44px;height:26px;flex-shrink:0;pointer-events:none;">
