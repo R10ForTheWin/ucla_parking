@@ -893,10 +893,19 @@ function showError(msg) {
   } else {
     iconEl.textContent = '❌';
   }
-  document.getElementById('error-title').textContent    = soldOut ? 'Cry Me A River' : 'Something went wrong';
-  document.getElementById('error-msg').textContent      = msg;
-  document.getElementById('error-btn').textContent      = soldOut ? 'Go Back' : 'Try Again';
-  document.getElementById('error-btn').style.display    = '';
+  document.getElementById('error-title').textContent = soldOut ? 'Cry Me A River' : 'Something went wrong';
+  document.getElementById('error-btn').textContent   = soldOut ? 'Go Back' : 'Try Again';
+  document.getElementById('error-btn').style.display = '';
+
+  // Render bruinepermit URLs as clickable links
+  const msgEl = document.getElementById('error-msg');
+  const urlPattern = /(https?:\/\/bruinepermit\.t2hosted\.com[^\s]*)/g;
+  if (urlPattern.test(msg)) {
+    msgEl.innerHTML = msg.replace(urlPattern, '<a href="$1" target="_blank" style="color:var(--primary)">$1</a>');
+  } else {
+    msgEl.textContent = msg;
+  }
+
   show('error');
 }
 

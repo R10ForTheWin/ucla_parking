@@ -343,18 +343,24 @@ def _find_permit_radio(page):
                     if pattern in label_text.lower():
                         return radio
 
-    info = []
+    labels = []
     for radio in all_radios:
         rid = radio.get_attribute("id") or ""
         label = page.locator(f"label[for='{rid}']").first.inner_text() if rid else ""
-        info.append(f"id={rid} label={label!r}")
-    print(f"[JUSTIN PERMIT] All radios: {info}", flush=True)
+        labels.append(label.strip())
+    print(f"[JUSTIN PERMIT] All radios: {labels}", flush=True)
 
-    if all_radios:
-        print("[JUSTIN PERMIT] Falling back to first radio", flush=True)
-        return page.get_by_role("radio").first
-
-    raise Exception("Could not find any permit radio buttons on the page.")
+    if labels:
+        listed = ", ".join(f'"{l}"' for l in labels if l)
+        raise Exception(
+            f"1-Day Student permits are not available right now — "
+            f"the site is only showing: {listed}. "
+            f"You may need to purchase manually: https://bruinepermit.t2hosted.com"
+        )
+    raise Exception(
+        "No permits found on the page — the UCLA parking site may be down or changed. "
+        "Try purchasing manually: https://bruinepermit.t2hosted.com"
+    )
 
 
 def _verify_purchase_success(page):
@@ -400,7 +406,14 @@ def _enter_permit_flow(page, cb):
     body_text = page.inner_text("body")
     print(f"[JUSTIN] Page URL: {page.url}", flush=True)
     if "bruin bill is not currently available" in body_text.lower():
-        raise BruinBillUnavailable("Bruin Bill payment system is temporarily down.")
+        # Extract the exact line(s) the site is showing about Bruin Bill
+        site_lines = [l.strip() for l in body_text.splitlines()
+                      if "bruin bill" in l.lower() and l.strip()]
+        site_quote = " | ".join(site_lines[:3]) if site_lines else "Bruin Bill is not currently available"
+        raise BruinBillUnavailable(
+            f"UCLA parking site says: \"{site_quote}\". "
+            f"Buy manually: https://bruinepermit.t2hosted.com"
+        )
 
     cb("Starting permit flow...")
     clicked = False

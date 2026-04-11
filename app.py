@@ -228,7 +228,7 @@ def api_buy():
 
             result = run_purchase(
                 username, password, structure,
-                callback=lambda m: _update(jid, message=m),
+                callback=lambda m: _update(jid, status="running", message=m),
                 duo_provider=duo_provider,
                 duo_method=duo_method,
                 dry_run=dry_run,
@@ -398,6 +398,15 @@ _SAFE_ERRORS = (
     "Invalid",
     "No vehicles found",
     "No purchase confirmation",
+    "not available right now",
+    "only showing",
+    "No permits found",
+    "permit",
+    "parking site",
+    "structures",
+    "Check your",
+    "timed out",
+    "check manually",
 )
 
 def _safe_error(exc):
