@@ -597,6 +597,7 @@
     <div class="duo-icon">📱</div>
     <div class="duo-title">Check Your Phone</div>
     <div class="duo-sub">Tap <strong>Approve</strong> in the Duo Mobile app to continue.</div>
+    <button class="btn btn-outline" style="margin-top:28px;width:260px;" onclick="switchDuoToPasscode()">Push Not Arriving? Use Passcode</button>
   </div>
 </div>
 
@@ -621,6 +622,7 @@
     <div class="result-title" id="error-title">Something went wrong</div>
     <div class="result-msg" id="error-msg">An error occurred</div>
     <button class="btn btn-primary result-btn" id="error-btn" onclick="show('home')">Try Again</button>
+    <button class="btn btn-success result-btn" id="error-mark-purchased-btn" style="display:none;margin-top:10px;" onclick="markAsPurchased()">My Permit Arrived — Mark as Purchased</button>
   </div>
 </div>
 
@@ -886,16 +888,20 @@ async function doRegister() {
 }
 
 function showError(msg) {
-  const soldOut = msg.toLowerCase().includes('sold out');
-  const iconEl  = document.getElementById('error-icon');
+  const soldOut    = msg.toLowerCase().includes('sold out');
+  const maybeWent  = msg.toLowerCase().includes('transaction was submitted');
+  const iconEl     = document.getElementById('error-icon');
   if (soldOut) {
     iconEl.innerHTML = '<img src="/static/soldout.gif" style="width:180px;border-radius:12px;">';
   } else {
-    iconEl.textContent = '❌';
+    iconEl.textContent = maybeWent ? '⚠️' : '❌';
   }
-  document.getElementById('error-title').textContent = soldOut ? 'Cry Me A River' : 'Something went wrong';
+  document.getElementById('error-title').textContent = soldOut ? 'Cry Me A River'
+    : maybeWent ? 'Not Sure If It Went Through'
+    : 'Something went wrong';
   document.getElementById('error-btn').textContent   = soldOut ? 'Go Back' : 'Try Again';
   document.getElementById('error-btn').style.display = '';
+  document.getElementById('error-mark-purchased-btn').style.display = maybeWent ? '' : 'none';
 
   // Render bruinepermit URLs as clickable links
   const msgEl = document.getElementById('error-msg');
@@ -907,6 +913,10 @@ function showError(msg) {
   }
 
   show('error');
+}
+
+function markAsPurchased() {
+  handleSuccess({ dry_run: false, detail: 'Manually confirmed' });
 }
 
 // ── Job polling ────────────────────────────────────────────────────────────
@@ -928,7 +938,10 @@ async function pollJob(jobId) {
       }
 
       if (job.status === 'awaiting_duo') {
-        if (!onDuoScreen) {
+        // Show passcode screen if: not yet on any DUO screen, OR currently stuck on
+        // the push screen (mid-flow switch from push → passcode)
+        const onPushScreen = document.getElementById('screen-duo-push').classList.contains('active');
+        if (!onDuoScreen || onPushScreen) {
           onDuoScreen = true;
           document.getElementById('duo-code').value = '';
           document.getElementById('duo-err').style.display = 'none';
@@ -1005,6 +1018,16 @@ async function submitDuo() {
   }
 }
 
+async function switchDuoToPasscode() {
+  try {
+    await fetch('/api/duo/' + currentJobId + '/use-passcode', { method: 'POST' });
+    // The bot will detect the flag within ~5s and transition to awaiting_duo.
+    // Poll loop will automatically show the passcode screen when status changes.
+  } catch (err) {
+    // Silently ignore — poll loop will handle state
+  }
+}
+
 // ── Success handler ────────────────────────────────────────────────────────
 function handleSuccess(result) {
   if (result && result.dry_run) {
@@ -1016,8 +1039,9 @@ function handleSuccess(result) {
   } else {
     const detail = (result && result.detail) ? result.detail : '';
     document.getElementById('success-title').textContent = "You're Parked! 🅿️";
-    document.getElementById('success-msg').textContent   =
-      'Parking purchased successfully. Check your inbox for a confirmation email.' + (detail ? '\n' + detail : '');
+    const confirmNum = detail && detail.startsWith('Confirmation') ? ' ' + detail + '.' : '';
+    document.getElementById('success-msg').textContent =
+      'Parking purchased successfully. Check your inbox for a confirmation email.' + confirmNum;
     document.getElementById('success-icon').style.display = 'none';
     document.getElementById('success-gif-wrap').style.display = 'block';
 

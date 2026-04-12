@@ -79,32 +79,39 @@ jobs:
           "
 
       - name: Wake server and send push notification
+        id: push
         if: steps.datecheck.outputs.should_run == 'true' && github.event.inputs.dry_run != 'true'
         env:
           JUSTIN_URL: ${{ secrets.JUSTIN_URL }}
           PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
         run: |
           python - <<'PYEOF'
-          import os, time, urllib.request, json
+          import os, sys, time, urllib.request, json
 
           url    = os.environ['JUSTIN_URL'].rstrip('/')
           secret = os.environ['PUSH_SECRET']
 
-          print('Waking server...')
+          print('Waking Railway server...')
+          server_up = False
           for attempt in range(12):
               try:
                   urllib.request.urlopen(url + '/ping', timeout=10)
                   print('Server is up.')
+                  server_up = True
                   break
               except Exception as e:
                   print(f'  attempt {attempt+1}: {e}')
                   time.sleep(10)
 
+          if not server_up:
+              print('ERROR: Server did not respond after 12 attempts.')
+              sys.exit(1)
+
           req = urllib.request.Request(
               url + '/api/send-push',
               data=json.dumps({
                   'title': "It's a School Day!",
-                  'body':  'Tap to open Justin and buy parking for today. (If you are taking EVI elective)'
+                  'body':  'Tap to open Justin and buy parking for today. (electives day)'
               }).encode(),
               headers={'Content-Type': 'application/json', 'X-Push-Secret': secret},
               method='POST',
@@ -112,6 +119,10 @@ jobs:
           with urllib.request.urlopen(req, timeout=15) as resp:
               result = json.loads(resp.read())
           print(f'Push result: {result}')
+
+          if result.get('sent', 0) == 0:
+              print('ERROR: Push sent to 0 subscribers — subscription may have expired.')
+              sys.exit(1)
           PYEOF
 
       - name: Upload screenshots

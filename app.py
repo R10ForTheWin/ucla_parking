@@ -209,9 +209,12 @@ def api_buy():
             def duo_provider():
                 """Notify UI of DUO state.
                 Push: non-blocking — just shows 'check your phone' screen.
-                Passcode: blocks until user submits their code via the web UI.
+                Passcode (or after push timeout/switch): blocks until user submits code.
                 """
-                if duo_method == "push":
+                with _jobs_lock:
+                    force_passcode = _jobs[jid].get("use_passcode", False)
+
+                if duo_method == "push" and not force_passcode:
                     _update(jid, status="awaiting_duo_push",
                             message="Check your phone and tap Approve in the Duo Mobile app")
                     return None
@@ -219,12 +222,21 @@ def api_buy():
                     _update(jid, status="awaiting_duo",
                             message="Enter your 6-digit DUO passcode below")
                     with _jobs_lock:
+                        _jobs[jid]["duo_event"].clear()
+                        _jobs[jid]["duo_code"] = None
                         event = _jobs[jid]["duo_event"]
                     event.wait(timeout=300)
                     with _jobs_lock:
                         code = _jobs[jid].get("duo_code")
                     _update(jid, status="running", message="DUO code received, continuing...")
                     return code
+
+            def check_passcode_switch(force=False):
+                """Check (or force) a switch from push to passcode mode."""
+                with _jobs_lock:
+                    if force:
+                        _jobs[jid]["use_passcode"] = True
+                    return _jobs[jid].get("use_passcode", False)
 
             result = run_purchase(
                 username, password, structure,
@@ -233,6 +245,7 @@ def api_buy():
                 duo_method=duo_method,
                 dry_run=dry_run,
                 real_dry_run=real_dry_run,
+                check_passcode_switch=check_passcode_switch,
             )
 
             if result == "dry_run":
@@ -266,6 +279,15 @@ def api_duo(jid):
             return jsonify({"error": "Job not found"}), 404
         _jobs[jid]["duo_code"] = code
         _jobs[jid]["duo_event"].set()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/duo/<jid>/use-passcode", methods=["POST"])
+def api_use_passcode(jid):
+    with _jobs_lock:
+        if jid not in _jobs:
+            return jsonify({"error": "Job not found"}), 404
+        _jobs[jid]["use_passcode"] = True
     return jsonify({"ok": True})
 
 
@@ -324,6 +346,27 @@ def api_vapid_public_key():
     return jsonify({'key': key})
 
 
+def _send_admin_email(subject, body):
+    """Send a plain-text email to the admin. Requires GMAIL_APP_PASSWORD env var."""
+    import smtplib
+    from email.mime.text import MIMEText
+    gmail_pass = os.environ.get('GMAIL_APP_PASSWORD', '').strip()
+    if not gmail_pass:
+        return
+    addr = 'djnurre@gmail.com'
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From']    = addr
+    msg['To']      = addr
+    try:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10) as server:
+            server.login(addr, gmail_pass)
+            server.send_message(msg)
+        app.logger.info('Admin email sent: %s', subject)
+    except Exception as e:
+        app.logger.warning('Admin email failed: %s', e)
+
+
 @app.route('/api/subscribe', methods=['POST'])
 def api_subscribe():
     sub = request.json
@@ -331,9 +374,20 @@ def api_subscribe():
         return jsonify({'error': 'Invalid subscription'}), 400
     with _push_lock:
         subs = _load_subs()
+        is_new = not any(s.get('endpoint') == sub['endpoint'] for s in subs)
         subs = [s for s in subs if s.get('endpoint') != sub['endpoint']]
         subs.append(sub)
         _save_subs(subs)
+    if is_new:
+        total = len(subs)
+        threading.Thread(
+            target=_send_admin_email,
+            args=(
+                f'Justin: new subscriber ({total} total)',
+                f'A new device just subscribed to Justin EMBAlake push notifications.\n\nTotal subscribers: {total}',
+            ),
+            daemon=True,
+        ).start()
     return jsonify({'ok': True})
 
 
