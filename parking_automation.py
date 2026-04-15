@@ -316,8 +316,26 @@ def _handle_duo(page, method, duo_provider, cb, check_passcode_switch=None):
             method = "passcode"
 
     # ── Passcode flow ──────────────────────────────────────────────────────
+    # If we fell through from a timed-out push, the page is still on the
+    # "awaiting push" screen.  Click "Other options" to get back to the
+    # method selector before looking for the passcode button.
+    for role in ("button", "link"):
+        try:
+            loc.get_by_role(role, name=re.compile("other options", re.IGNORECASE)).first.click(timeout=5000)
+            try:
+                page.wait_for_function(
+                    "() => Array.from(document.querySelectorAll('button,a,[role=button]'))"
+                    ".some(e => /passcode/i.test((e.innerText||'').trim()))",
+                    timeout=8000,
+                )
+            except Exception:
+                page.wait_for_timeout(2000)
+            break
+        except Exception:
+            pass
+
     clicked = False
-    for label in ("Use a Passcode", "Enter a Passcode", "Send a passcode", "Passcode"):
+    for label in ("Duo Mobile passcode", "Use a Passcode", "Enter a Passcode", "Send a passcode", "Passcode"):
         for role in ("button", "link"):
             try:
                 loc.get_by_role(role, name=re.compile(label, re.IGNORECASE)).first.click(timeout=8000)
