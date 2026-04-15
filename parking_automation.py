@@ -404,6 +404,33 @@ def _find_permit_radio(page):
     )
 
 
+def _check_payment_failure(page):
+    """After clicking Complete Transaction, scan the page body for real UCLA
+    payment failure messages and raise a clear exception if found.
+    Only call this after the transaction has been submitted."""
+    try:
+        body = page.inner_text("body")
+    except Exception:
+        return
+    body_lower = body.lower()
+
+    FAILURE_SIGNALS = [
+        ("payment was declined",          "Payment was declined by your bank — contact your bank or try again."),
+        ("unable to process",             "UCLA was unable to process the payment — try again or buy manually: https://bruinepermit.t2hosted.com"),
+        ("transaction could not",         "Transaction could not be completed — try again or buy manually: https://bruinepermit.t2hosted.com"),
+        ("payment method is not",         "Payment method not accepted — buy manually: https://bruinepermit.t2hosted.com"),
+        ("bruin bill account",            "Bruin Bill account issue — check your account at https://bruinepermit.t2hosted.com"),
+        ("insufficient funds",            "Insufficient funds on Bruin Bill — add funds and try again."),
+        ("system is currently unavailable", "UCLA payment system is temporarily unavailable — try again in a few minutes."),
+        ("error processing",              "Error processing payment — try again or buy manually: https://bruinepermit.t2hosted.com"),
+    ]
+
+    for signal, message in FAILURE_SIGNALS:
+        if signal in body_lower:
+            print(f"[JUSTIN PAYMENT] Failure signal detected: '{signal}'", flush=True)
+            raise Exception(message)
+
+
 def _verify_purchase_success(page):
     try:
         page.wait_for_load_state("networkidle", timeout=config.PAGE_LOAD_TIMEOUT)
@@ -414,6 +441,11 @@ def _verify_purchase_success(page):
         for pattern in ["confirmation", "receipt", "transaction complete", "successfully",
                         "permit number", "issued", "approved", "thank you", "order"]:
             if pattern.lower() in body.lower():
+                # Try bracketed permit number first: e.g. "[85CSY00011593511]" in description
+                bracket_match = re.search(r'\[([A-Z0-9]{8,})\]', body)
+                if bracket_match:
+                    return f"Confirmation #{bracket_match.group(1)}"
+                # Fallback: "permit/order/confirmation number: XXXXX"
                 match = re.search(
                     r'(?:confirmation|receipt|transaction|permit|order)\s*(?:#|number|no)[:\s]*(\w{3,})',
                     body, re.IGNORECASE
@@ -435,6 +467,10 @@ def _enter_permit_flow(page, cb):
     'UCLA Logon' without asking for credentials or Duo again.
     If the session is expired, the site will redirect to the SSO login page
     and the caller should detect that and fall back to the full flow.
+
+    Returns "cart_ready" if an orphaned cart with today's permit was found and
+    selected — callers should skip permit-selection steps and go straight to
+    checkout.  Returns None for the normal flow.
     """
     cb("Opening the UCLA parking site...")
     page.goto(
@@ -444,17 +480,90 @@ def _enter_permit_flow(page, cb):
     )
     _wait_for_queue_it(page, cb)
 
+    # ── Orphaned cart handling ─────────────────────────────────────────────────
+    # UCLA redirects to assumeOrphanedCart.aspx when a previous run (including
+    # real_dry_run) left items in a cart.  The right move is to SELECT the
+    # basket that already has today's permit — we can go straight to checkout
+    # and skip all the permit-selection steps.  If the basket is stale (wrong
+    # date) we cancel it and start fresh.
+    if "assumeOrphanedCart" in page.url:
+        print(f"[JUSTIN] Orphaned cart page — URL: {page.url}", flush=True)
+        cb("Checking previous cart...")
+
+        # Today's date in PT, formatted to match UCLA's permit description
+        # e.g. "04/15/2026" as in "Yellow / 1-Day Student (04/15/2026 - 04/15/2026)"
+        from datetime import datetime, timezone, timedelta
+        la_now = datetime.now(timezone(timedelta(hours=-7)))  # PDT
+        today_fmt = la_now.strftime("%m/%d/%Y")
+
+        selected_with_permit = False
+        rows = page.locator("table tr").all()
+        for row in rows:
+            try:
+                row_text = row.inner_text()
+            except Exception:
+                continue
+            # Non-empty basket: has a dollar amount > $0.00
+            if "$" in row_text and "$0.00" not in row_text:
+                try:
+                    row.get_by_role("link", name=re.compile("select", re.IGNORECASE)).first.click(timeout=5000)
+                    page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+                    selected_with_permit = True
+                    print(f"[JUSTIN] Selected non-empty basket — now at {page.url}", flush=True)
+                    break
+                except Exception:
+                    continue
+
+        if selected_with_permit and "crt/" in page.url:
+            # Verify the permit in this cart is for today
+            body = page.inner_text("body")
+            if today_fmt in body:
+                print(f"[JUSTIN] Orphaned cart has today's permit ({today_fmt}) — proceeding to checkout", flush=True)
+                cb("Found today's permit in cart — proceeding to checkout...")
+                if "bruin bill is not currently available" in body.lower():
+                    print(f"[JUSTIN] Note: Bruin Bill warning present — this is non-fatal, continuing", flush=True)
+                return "cart_ready"
+            else:
+                # Stale permit from a previous day — cancel it and start fresh
+                print(f"[JUSTIN] Orphaned cart has stale permit (not {today_fmt}) — cancelling", flush=True)
+                cb("Clearing stale cart...")
+                try:
+                    page.get_by_role("button", name=re.compile("cancel purchase", re.IGNORECASE)).click(timeout=8000)
+                    page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+                except Exception:
+                    pass
+                # Re-navigate to portal for a clean start
+                page.goto(
+                    "https://bruinepermit.t2hosted.com/Account/Portal",
+                    timeout=config.PAGE_LOAD_TIMEOUT,
+                    wait_until="domcontentloaded",
+                )
+        elif not selected_with_permit:
+            # No non-empty basket — select the $0.00 empty basket to discard all orphans
+            print(f"[JUSTIN] No non-empty basket found — selecting empty basket", flush=True)
+            for row in page.locator("table tr").all():
+                try:
+                    row_text = row.inner_text()
+                except Exception:
+                    continue
+                if "$0.00" in row_text:
+                    try:
+                        row.get_by_role("link", name=re.compile("select", re.IGNORECASE)).first.click(timeout=5000)
+                        page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+                        print(f"[JUSTIN] Empty basket selected — now at {page.url}", flush=True)
+                        break
+                    except Exception:
+                        continue
+
+    # ── Normal portal flow ─────────────────────────────────────────────────────
+    # Note: UCLA shows a "Bruin Bill not available for Event Permits" warning on
+    # both the portal and cart pages.  This is informational only — the transaction
+    # still processes via Bruin Bill ("Invoice Sent to Bruin Bill" on confirmation).
+    # Do NOT raise here; just log and continue.
     body_text = page.inner_text("body")
     print(f"[JUSTIN] Page URL: {page.url}", flush=True)
     if "bruin bill is not currently available" in body_text.lower():
-        # Extract the exact line(s) the site is showing about Bruin Bill
-        site_lines = [l.strip() for l in body_text.splitlines()
-                      if "bruin bill" in l.lower() and l.strip()]
-        site_quote = " | ".join(site_lines[:3]) if site_lines else "Bruin Bill is not currently available"
-        raise BruinBillUnavailable(
-            f"UCLA parking site says: \"{site_quote}\". "
-            f"Buy manually: https://bruinepermit.t2hosted.com"
-        )
+        print(f"[JUSTIN] Note: Bruin Bill warning detected — non-fatal, continuing", flush=True)
 
     cb("Starting permit flow...")
     clicked = False
@@ -477,85 +586,54 @@ def _enter_permit_flow(page, cb):
 
     page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
     print(f"[JUSTIN] After UCLA Logon: {page.url}", flush=True)
+    return None
 
 
-def _run_permit_steps(page, structure, cb, dry_run=False):
-    """Steps 5–9: orphaned cart → permit → vehicle → structure → checkout.
+def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False):
+    """Steps 6–9: permit → vehicle → structure → checkout.
     Called from both the full flow and the cached-session fast path.
+
+    cart_ready=True: an orphaned cart with today's permit was already selected
+    in _enter_permit_flow — skip steps 6-8 and go straight to checkout.
     """
-    # Step 5: Handle orphaned cart
-    # T2 shows a "choose your basket" page when a previous session was abandoned.
-    # It lists the old cart (with items + price) and an empty basket ($0.00).
-    # Selecting the $0.00 row discards the orphan and starts fresh.
-    try:
-        body = page.inner_text("body")
-        url_lower = page.url.lower()
-        ORPHAN_SIGNALS = [
-            "orphan" in url_lower,
-            "basket" in url_lower,
-            "previous basket" in body.lower(),
-            "previous session" in body.lower(),
-            "pending transaction" in body.lower(),
-            "incomplete transaction" in body.lower(),
-            "existing cart" in body.lower(),
-        ]
-        if any(ORPHAN_SIGNALS):
-            print(f"[JUSTIN CART] Orphan detected. URL: {page.url}", flush=True)
-            print(f"[JUSTIN CART] Body snippet:\n{body[:600]}", flush=True)
-            cb("Clearing previous cart...")
-            empty_clicked = False
+    # If the cart is already loaded (orphaned basket with today's permit),
+    # skip all permit/vehicle/structure selection and jump to transaction.
+    if cart_ready or "crt/" in page.url:
+        print(f"[JUSTIN] Cart already ready at {page.url} — skipping permit selection", flush=True)
+        if dry_run:
+            cb("Dry run complete — stopping before Process Transaction.")
+            return "dry_run"
+        # Fall through to Step 9 below
+        cb("Cart ready — processing transaction...")
+        _screenshot(page, "pre_purchase")
 
-            # Primary: find the $0.00 row and click its Select link (empty basket option)
-            rows = page.locator("table tr").all()
-            for row in rows:
-                try:
-                    row_text = row.inner_text()
-                    if "$0.00" in row_text or "0.00" in row_text:
-                        link = row.get_by_role("link", name=re.compile(r"select", re.IGNORECASE))
-                        if link.count() > 0:
-                            print(f"[JUSTIN CART] Clicking $0.00 empty-basket row", flush=True)
-                            link.first.click()
-                            empty_clicked = True
-                            break
-                except Exception:
-                    continue
-
-            # Fallback: look for a link explicitly labeled new/empty/discard/clear
-            if not empty_clicked:
-                for label in [r"new\s+transaction", r"empty\s+cart", r"discard", r"clear\s+cart", r"start\s+new"]:
-                    try:
-                        link = page.get_by_role("link", name=re.compile(label, re.IGNORECASE))
-                        if link.count() > 0:
-                            print(f"[JUSTIN CART] Clicking discard link: {label}", flush=True)
-                            link.first.click()
-                            empty_clicked = True
-                            break
-                    except Exception:
-                        continue
-
-            if not empty_clicked:
-                # Last resort: hard-navigate back to Account/Portal to bypass the cart entirely
-                print(f"[JUSTIN CART] Could not clear orphan — re-entering via Account/Portal", flush=True)
-                page.goto(
-                    "https://bruinepermit.t2hosted.com/Account/Portal",
+        pre_purchase_url = page.url
+        page.get_by_role("button", name=re.compile("Proceed with Transaction", re.IGNORECASE)).click()
+        try:
+            page.wait_for_load_state("networkidle", timeout=config.PAGE_LOAD_TIMEOUT)
+        except Exception:
+            pass
+        complete_btn = page.get_by_role("button", name=re.compile("Complete Transaction", re.IGNORECASE))
+        if complete_btn.count() > 0:
+            print(f"[JUSTIN VERIFY] Payment review step — clicking Complete Transaction", flush=True)
+            cb("Completing transaction...")
+            _screenshot(page, "pre_complete")
+            complete_btn.click()
+            try:
+                page.wait_for_function(
+                    f"() => window.location.href !== '{pre_purchase_url}'",
                     timeout=config.PAGE_LOAD_TIMEOUT,
-                    wait_until="domcontentloaded",
                 )
-                for btn_text in ["Get Permits", "Buy Permits", "Purchase Permits", "Permits"]:
-                    try:
-                        page.get_by_role("button", name=re.compile(btn_text, re.IGNORECASE)).click(timeout=5000)
-                        break
-                    except Exception:
-                        pass
-                try:
-                    page.get_by_role("button", name="UCLA Logon").click(timeout=8000)
-                except Exception:
-                    pass
-
-            page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
-            print(f"[JUSTIN CART] After cart handling: {page.url}", flush=True)
-    except Exception as e:
-        print(f"[JUSTIN CART] Orphan check error (non-fatal): {e}", flush=True)
+            except Exception:
+                raise Exception("Payment did not advance after clicking 'Complete Transaction' — check manually: https://bruinepermit.t2hosted.com")
+        else:
+            if page.url == pre_purchase_url:
+                raise Exception("Payment page did not advance — check manually: https://bruinepermit.t2hosted.com")
+        _check_payment_failure(page)
+        result = _verify_purchase_success(page)
+        if result:
+            return result
+        raise PurchaseAlreadyAttempted("Transaction was submitted but no confirmation page appeared — check your email and https://bruinepermit.t2hosted.com before trying again.")
 
     # Step 6: Select permit type
     cb("Selecting permit...")
@@ -705,6 +783,7 @@ def _run_permit_steps(page, structure, cb, dry_run=False):
             print(f"[JUSTIN VERIFY] URL did not change after clicking Proceed — still at {page.url}", flush=True)
             raise Exception("Payment page did not advance — check manually: https://bruinepermit.t2hosted.com")
 
+    _check_payment_failure(page)
     result = _verify_purchase_success(page)
     if result:
         return result
@@ -721,7 +800,9 @@ def _do_purchase_full(page, context, username, password, structure, cb, duo_prov
     save_session_for: if set (username string), saves browser session after
     Duo so future runs can skip login+Duo entirely.
     """
-    _enter_permit_flow(page, cb)
+    cart_ready_status = _enter_permit_flow(page, cb)
+    if cart_ready_status == "cart_ready":
+        return _run_permit_steps(page, structure, cb, dry_run, cart_ready=True)
 
     # Step 3: UCLA SSO login
     cb("Logging in with your UCLA credentials...")
@@ -762,7 +843,7 @@ def _do_purchase_full(page, context, username, password, structure, cb, duo_prov
     print(f"[JUSTIN POST-DUO] URL: {page.url}", flush=True)
 
     # If Duo auto-approved and landed us off the permit path, re-enter via Account/Portal
-    if "bruinepermit.t2hosted.com" in page.url and "per/index.aspx" not in page.url:
+    if "bruinepermit.t2hosted.com" in page.url and "per/index.aspx" not in page.url and "crt/" not in page.url:
         print(f"[JUSTIN] Re-entering permit flow from {page.url}", flush=True)
         cb("Setting up permit session...")
         page.goto(
@@ -797,7 +878,7 @@ def _do_purchase_cached(page, structure, cb, dry_run=False):
 
     Raises if the session turned out to be expired (caller falls back to full flow).
     """
-    _enter_permit_flow(page, cb)
+    cart_ready_status = _enter_permit_flow(page, cb)
 
     # If we ended up on the SSO login page, session has expired
     if "shb.ais.ucla.edu" in page.url or "login" in page.url.lower():
@@ -806,8 +887,13 @@ def _do_purchase_cached(page, structure, cb, dry_run=False):
     print(f"[JUSTIN CACHE] Fast path active — skipped login & Duo", flush=True)
     cb("Session restored — skipping Duo...")
 
+    # If orphaned cart handling landed us at the cart, go straight to checkout
+    if cart_ready_status == "cart_ready":
+        return _run_permit_steps(page, structure, cb, dry_run, cart_ready=True)
+
     # May have landed off the permit path (e.g. Account/Portal dashboard)
-    if "bruinepermit.t2hosted.com" in page.url and "per/index.aspx" not in page.url:
+    # Skip this navigation if already on a cart page
+    if "bruinepermit.t2hosted.com" in page.url and "per/index.aspx" not in page.url and "crt/" not in page.url:
         print(f"[JUSTIN CACHE] Not on permit path ({page.url}), navigating in...", flush=True)
         clicked = False
         for btn_text in ["Get Permits", "Buy Permits", "Purchase Permits", "Permits"]:
