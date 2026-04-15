@@ -78,6 +78,12 @@ class BruinBillUnavailable(Exception):
     pass
 
 
+class PurchaseAlreadyAttempted(Exception):
+    """Raised when the transaction was submitted but confirmation could not be verified.
+    Should NOT trigger a cache-clear or retry — the permit may already be purchased."""
+    pass
+
+
 def _ensure_screenshot_dir():
     os.makedirs(config.SCREENSHOT_DIR, exist_ok=True)
 
@@ -150,7 +156,7 @@ def _wait_for_queue_it(page, cb):
     raise TimeoutError("Stuck in Queue-it waiting room — try again in a moment.")
 
 
-def _handle_duo(page, method, duo_provider, cb):
+def _handle_duo(page, method, duo_provider, cb, check_passcode_switch=None):
     """Wait for DUO, then authenticate via push or passcode.
 
     UCLA SSO has two Duo integration modes:
@@ -287,10 +293,27 @@ def _handle_duo(page, method, duo_provider, cb):
             cb("Duo Push not available — switching to passcode...")
             method = "passcode"
         else:
-            duo_provider()
-            page.wait_for_url("**/bruinepermit.t2hosted.com/**", timeout=config.DUO_WAIT_TIMEOUT * 1000)
-            cb("DUO verified!")
-            return
+            duo_provider()  # sets status=awaiting_duo_push, returns immediately
+            # Poll in 5-second increments so we can detect a mid-wait switch request
+            deadline = time.time() + config.DUO_WAIT_TIMEOUT
+            approved = False
+            while time.time() < deadline:
+                try:
+                    page.wait_for_url("**/bruinepermit.t2hosted.com/**", timeout=5000)
+                    approved = True
+                    break
+                except PwTimeout:
+                    if check_passcode_switch and check_passcode_switch():
+                        cb("Switching to passcode...")
+                        break
+            if approved:
+                cb("DUO verified!")
+                return
+            # Push timed out or user switched — fall through to passcode
+            cb("Duo Push didn't arrive — enter a passcode to continue...")
+            if check_passcode_switch:
+                check_passcode_switch(force=True)  # ensure duo_provider enters passcode mode
+            method = "passcode"
 
     # ── Passcode flow ──────────────────────────────────────────────────────
     clicked = False
@@ -667,13 +690,14 @@ def _run_permit_steps(page, structure, cb, dry_run=False):
     result = _verify_purchase_success(page)
     if result:
         return result
-    raise Exception("No purchase confirmation found on page — check manually: https://bruinepermit.t2hosted.com")
+    raise PurchaseAlreadyAttempted("Transaction was submitted but no confirmation page appeared — check your email and https://bruinepermit.t2hosted.com before trying again.")
 
 
 # ── Purchase flows ────────────────────────────────────────────────────────────
 
 def _do_purchase_full(page, context, username, password, structure, cb, duo_provider,
-                      duo_method="push", dry_run=False, save_session_for=None):
+                      duo_method="push", dry_run=False, save_session_for=None,
+                      check_passcode_switch=None):
     """Full flow: navigate → UCLA login → Duo → permit steps.
 
     save_session_for: if set (username string), saves browser session after
@@ -709,7 +733,8 @@ def _do_purchase_full(page, context, username, password, structure, cb, duo_prov
     _screenshot(page, "after_sign_in")
 
     # Step 4: DUO 2FA
-    _handle_duo(page, duo_method, duo_provider, cb)
+    _handle_duo(page, duo_method, duo_provider, cb,
+                check_passcode_switch=check_passcode_switch)
 
     # ── Save session immediately after Duo so next run can skip this whole section ──
     if save_session_for:
@@ -926,7 +951,7 @@ def _setup_page(context):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def run_purchase(username, password, structure, callback, duo_provider, duo_method="push",
-                 dry_run=False, real_dry_run=False):
+                 dry_run=False, real_dry_run=False, check_passcode_switch=None):
     """Run the full purchase flow for one user.
 
     dry_run=True      — mock flow (no browser), tests the web UI state machine.
@@ -972,7 +997,7 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
                 _screenshot(page, "success")
                 print(f"[JUSTIN CACHE] Fast path succeeded!", flush=True)
                 return result
-            except BruinBillUnavailable:
+            except (BruinBillUnavailable, PurchaseAlreadyAttempted):
                 raise
             except Exception as e:
                 print(f"[JUSTIN CACHE] Fast path failed: {e} — clearing cache, retrying with full login", flush=True)
@@ -998,10 +1023,13 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
                 result = _do_purchase_full(
                     page, context, username, password, structure,
                     cb, duo_provider, duo_method=duo_method, dry_run=actual_dry_run,
-                    save_session_for=username,
+                    save_session_for=username, check_passcode_switch=check_passcode_switch,
                 )
                 _screenshot(page, "success")
                 return result
+
+            except PurchaseAlreadyAttempted:
+                raise
 
             except BruinBillUnavailable as e:
                 last_error = e
