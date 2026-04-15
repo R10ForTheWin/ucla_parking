@@ -14,7 +14,9 @@ PAGE_LOAD_TIMEOUT = 60000      # Playwright page timeout (ms)
 MAX_RETRIES = 1
 
 # Parking structures (option values from Str * - Student Daily Yellow dropdown)
-STRUCTURE_4  = "2127"    # Str 4 - Student Daily Yellow (confirmed 2026-04-02)
+# NOTE: These values drift — UCLA changes them periodically.
+# The bot falls back to the only available option if configured values don't match.
+STRUCTURE_4  = "2003"    # Str 4 - Student Daily Yellow (confirmed 2026-04-15)
 STRUCTURE_P7 = "2128"    # Str 7 - Student Daily Yellow (confirmed 2026-04-02)
 STRUCTURE_32 = "2129"    # Str 32 - Student Daily Yellow (confirmed 2026-04-02)
 

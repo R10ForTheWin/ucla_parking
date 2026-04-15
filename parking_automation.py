@@ -492,8 +492,16 @@ def _enter_permit_flow(page, cb):
 
         # Today's date in PT, formatted to match UCLA's permit description
         # e.g. "04/15/2026" as in "Yellow / 1-Day Student (04/15/2026 - 04/15/2026)"
-        from datetime import datetime, timezone, timedelta
-        la_now = datetime.now(timezone(timedelta(hours=-7)))  # PDT
+        from datetime import datetime
+        try:
+            from zoneinfo import ZoneInfo
+            la_now = datetime.now(ZoneInfo("America/Los_Angeles"))
+        except ImportError:
+            from datetime import timezone, timedelta
+            # Fallback: approximate PT offset (handles both PST/PDT conservatively)
+            import time as _time
+            utc_offset = -8 if _time.localtime().tm_isdst == 0 else -7
+            la_now = datetime.now(timezone(timedelta(hours=utc_offset)))
         today_fmt = la_now.strftime("%m/%d/%Y")
 
         selected_with_permit = False
@@ -618,10 +626,11 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False):
             print(f"[JUSTIN VERIFY] Payment review step — clicking Complete Transaction", flush=True)
             cb("Completing transaction...")
             _screenshot(page, "pre_complete")
+            payment_url = page.url  # new baseline — we're now on Payment Info page
             complete_btn.click()
             try:
                 page.wait_for_function(
-                    f"() => window.location.href !== '{pre_purchase_url}'",
+                    f"() => window.location.href !== '{payment_url}'",
                     timeout=config.PAGE_LOAD_TIMEOUT,
                 )
             except Exception:
@@ -760,25 +769,28 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False):
     except Exception:
         pass
 
-    # Check if we landed on the payment review step (same URL, "Complete Transaction" button)
+    # Check if we landed on the payment review step ("Complete Transaction" button)
+    # Note: "Proceed with Transaction" on crt/view.aspx navigates to a *new* URL
+    # (the Payment Information page), so pre_purchase_url is now stale. Capture
+    # the current URL as the new baseline before clicking Complete Transaction.
     complete_btn = page.get_by_role("button", name="Complete Transaction")
     if complete_btn.count() > 0:
         print(f"[JUSTIN VERIFY] Payment review step detected — clicking Complete Transaction", flush=True)
         cb("Completing transaction...")
         _screenshot(page, "pre_complete")
+        payment_url = page.url  # capture Payment Info page URL as new baseline
         complete_btn.click()
-        # Now wait for navigation to the confirmation page
+        # Wait for navigation away from the payment page to the confirmation page
         try:
             page.wait_for_function(
-                f"() => window.location.href !== '{pre_purchase_url}'",
+                f"() => window.location.href !== '{payment_url}'",
                 timeout=config.PAGE_LOAD_TIMEOUT,
             )
         except Exception:
             print(f"[JUSTIN VERIFY] URL did not change after clicking Complete Transaction — still at {page.url}", flush=True)
             raise Exception("Payment did not advance after clicking 'Complete Transaction' — check manually: https://bruinepermit.t2hosted.com")
     else:
-        # No "Complete Transaction" button — expect "Proceed" to have navigated directly to confirmation.
-        # If the URL is still the same as before, the button click failed.
+        # No "Complete Transaction" button — "Proceed" navigated directly to confirmation.
         if page.url == pre_purchase_url:
             print(f"[JUSTIN VERIFY] URL did not change after clicking Proceed — still at {page.url}", flush=True)
             raise Exception("Payment page did not advance — check manually: https://bruinepermit.t2hosted.com")
