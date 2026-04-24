@@ -464,6 +464,19 @@
     <div class="section-gap">
       <button class="btn btn-primary" onclick="saveSetup()">Save &amp; Continue</button>
     </div>
+    <div style="margin-top:24px;padding-top:20px;border-top:1px solid #eee;text-align:center;">
+      <p style="font-size:14px;color:var(--muted);line-height:1.55;margin-bottom:14px;">
+        Don't want to add your login info? You can still use Justin in a limited way —
+        get alerted on class days so you remember to buy parking.
+      </p>
+      <button class="btn btn-outline" onclick="setupAlertsOnly()" style="font-size:15px;">
+        Just Get Class Day Alerts
+      </button>
+      <p style="font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5;">
+        Note: you'll still need to purchase parking yourself at
+        <strong>bruinepermit.t2hosted.com</strong>
+      </p>
+    </div>
   </div>
 </div>
 
@@ -691,6 +704,20 @@ function storeProfile(username, password) {
   localStorage.setItem('justin_password', password);
 }
 
+function isAlertsOnly() {
+  const p = getProfile();
+  return !p.username && !p.password;
+}
+
+function setupAlertsOnly() {
+  localStorage.removeItem('justin_username');
+  localStorage.removeItem('justin_password');
+  loadHome();
+  show('home');
+  _updateNotifButton();
+  if (Notification.permission === 'default') toggleNotifications();
+}
+
 function esc(str) {
   return String(str || '')
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -729,26 +756,31 @@ function saveSetup() {
 function loadHome() {
   const p = getProfile();
   // avatar is now a static bruin image — no dynamic text needed
-  document.getElementById('home-username').textContent = p.username || 'Not configured';
+  document.getElementById('home-username').textContent = p.username || 'Alerts Only';
 
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
 
   updateNextDayCard();
 
-  // Show "already purchased" banner if we bought parking today
   const buyBtn = document.getElementById('buy-btn');
-  try {
-    const rec = JSON.parse(localStorage.getItem('justin_last_purchase') || 'null');
-    if (rec && rec.date === today) {
-      const timeStr = rec.time ? `Purchased at ${rec.time}` : 'Purchased today';
-      buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Permit Purchased</span><span style="font-size:12px;font-weight:500;opacity:0.85;">${timeStr} · Tap to buy again</span></div>`;
-      buyBtn.style.opacity = '';
-    } else {
+  if (isAlertsOnly()) {
+    // No credentials — show a link to the UCLA site instead
+    buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Buy Parking at UCLA</span><span style="font-size:12px;font-weight:500;opacity:0.85;">Opens bruinepermit.t2hosted.com in your browser</span></div>`;
+    buyBtn.onclick = () => window.open('https://bruinepermit.t2hosted.com', '_blank');
+  } else {
+    // Show "already purchased" banner if we bought parking today
+    try {
+      const rec = JSON.parse(localStorage.getItem('justin_last_purchase') || 'null');
+      if (rec && rec.date === today) {
+        const timeStr = rec.time ? `Purchased at ${rec.time}` : 'Purchased today';
+        buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Permit Purchased</span><span style="font-size:12px;font-weight:500;opacity:0.85;">${timeStr} · Tap to buy again</span></div>`;
+      } else {
+        buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Buy Parking Today</span><span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $8.01 · Payment on file</span></div>`;
+      }
+    } catch(e) {
       buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Buy Parking Today</span><span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $8.01 · Payment on file</span></div>`;
-      buyBtn.style.opacity = '';
     }
-  } catch(e) {
-    buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Buy Parking Today</span><span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $8.01 · Payment on file</span></div>`;
+    buyBtn.onclick = startBuy;
   }
 }
 
