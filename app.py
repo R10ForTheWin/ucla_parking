@@ -106,12 +106,18 @@ def _create_job():
     jid = str(uuid.uuid4())
     with _jobs_lock:
         _jobs[jid] = {
-            "status":     "running",
-            "message":    "Starting...",
-            "result":     None,
-            "created_at": time.time(),
-            "duo_event":  threading.Event(),
-            "duo_code":   None,
+            "status":        "running",
+            "message":       "Starting...",
+            "result":        None,
+            "created_at":    time.time(),
+            "duo_event":     threading.Event(),
+            "duo_code":      None,
+            "vehicle_event":    threading.Event(),
+            "vehicle_index":    None,
+            "vehicle_labels":   None,
+            "structure_event":   threading.Event(),
+            "structure_index":   None,
+            "structure_options": None,
         }
     return jid
 
@@ -127,7 +133,7 @@ def _get(jid):
         j = _jobs.get(jid)
         if not j:
             return {"status": "not_found", "message": "Job not found"}
-        return {k: v for k, v in j.items() if k not in ("duo_event", "duo_code")}
+        return {k: v for k, v in j.items() if k not in ("duo_event", "duo_code", "vehicle_event", "vehicle_index", "structure_event", "structure_index")}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────
@@ -238,6 +244,37 @@ def api_buy():
                         _jobs[jid]["use_passcode"] = True
                     return _jobs[jid].get("use_passcode", False)
 
+            def vehicle_provider(labels):
+                _update(jid, status="awaiting_vehicle_selection",
+                        message="Which vehicle are you driving today?",
+                        vehicle_labels=labels)
+                with _jobs_lock:
+                    _jobs[jid]["vehicle_event"].clear()
+                    _jobs[jid]["vehicle_index"] = None
+                    event = _jobs[jid]["vehicle_event"]
+                event.wait(timeout=300)
+                with _jobs_lock:
+                    idx = _jobs[jid].get("vehicle_index") or 0
+                _update(jid, status="running", message="Vehicle selected...")
+                return idx
+
+            def structure_provider(options, sold_out_name):
+                values = [o["value"] for o in options]
+                _update(jid, status="awaiting_structure_selection",
+                        message=f"{sold_out_name} is sold out — choose a different structure below, or cancel.",
+                        structure_options=[o["text"] for o in options])
+                with _jobs_lock:
+                    _jobs[jid]["structure_event"].clear()
+                    _jobs[jid]["structure_index"] = None
+                    event = _jobs[jid]["structure_event"]
+                event.wait(timeout=300)
+                with _jobs_lock:
+                    idx = _jobs[jid].get("structure_index")
+                if idx is None or idx < 0:
+                    return None
+                _update(jid, status="running", message="Got it — continuing...")
+                return values[idx] if idx < len(values) else None
+
             result = run_purchase(
                 username, password, structure,
                 callback=lambda m: _update(jid, status="running", message=m),
@@ -246,6 +283,8 @@ def api_buy():
                 dry_run=dry_run,
                 real_dry_run=real_dry_run,
                 check_passcode_switch=check_passcode_switch,
+                vehicle_provider=vehicle_provider,
+                structure_provider=structure_provider,
             )
 
             if result == "dry_run":
@@ -288,6 +327,34 @@ def api_use_passcode(jid):
         if jid not in _jobs:
             return jsonify({"error": "Job not found"}), 404
         _jobs[jid]["use_passcode"] = True
+    return jsonify({"ok": True})
+
+
+@app.route("/api/structure/<jid>", methods=["POST"])
+def api_structure(jid):
+    data  = request.json or {}
+    index = data.get("index", -1)
+    if not isinstance(index, int):
+        return jsonify({"error": "Invalid structure index"}), 400
+    with _jobs_lock:
+        if jid not in _jobs:
+            return jsonify({"error": "Job not found"}), 404
+        _jobs[jid]["structure_index"] = index
+        _jobs[jid]["structure_event"].set()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/vehicle/<jid>", methods=["POST"])
+def api_vehicle(jid):
+    data  = request.json or {}
+    index = data.get("index", 0)
+    if not isinstance(index, int) or index < 0:
+        return jsonify({"error": "Invalid vehicle index"}), 400
+    with _jobs_lock:
+        if jid not in _jobs:
+            return jsonify({"error": "Job not found"}), 404
+        _jobs[jid]["vehicle_index"] = index
+        _jobs[jid]["vehicle_event"].set()
     return jsonify({"ok": True})
 
 

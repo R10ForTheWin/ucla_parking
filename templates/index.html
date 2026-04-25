@@ -727,6 +727,27 @@
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════ STRUCTURE SELECTION -->
+<div class="screen" id="screen-structure">
+  <div class="center-screen">
+    <div class="duo-icon">🅿️</div>
+    <div class="duo-title" id="structure-title">Structure Sold Out</div>
+    <div class="duo-sub" id="structure-sub">Choose a different parking structure below, or cancel your purchase for today.</div>
+    <div id="structure-buttons" style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:300px;margin-top:24px;"></div>
+    <button class="btn btn-outline" style="margin-top:16px;width:100%;max-width:300px;color:#888;" onclick="cancelStructure()">Don't buy parking today</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ VEHICLE SELECTION -->
+<div class="screen" id="screen-vehicle">
+  <div class="center-screen">
+    <div class="duo-icon">🚗</div>
+    <div class="duo-title">Which Car Today?</div>
+    <div class="duo-sub">You have multiple vehicles on file. Select the one you're driving today.</div>
+    <div id="vehicle-buttons" style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:300px;margin-top:24px;"></div>
+  </div>
+</div>
+
 <!-- ═══════════════════════════════════════════ SUCCESS -->
 <div class="screen" id="screen-success">
   <div class="center-screen">
@@ -1069,6 +1090,8 @@ async function pollJob(jobId) {
   const MAX_POLLS = 720; // 6 minutes at 500ms
   let polls = 0;
   let onDuoScreen = false;
+  let onVehicleScreen = false;
+  let onStructureScreen = false;
 
   while (polls++ < MAX_POLLS) {
     await new Promise(r => setTimeout(r, 500));
@@ -1104,9 +1127,56 @@ async function pollJob(jobId) {
         continue;
       }
 
+      if (job.status === 'awaiting_structure_selection') {
+        if (!onStructureScreen) {
+          onStructureScreen = true;
+          document.getElementById('structure-sub').textContent = job.message || 'Choose a different parking structure below, or cancel your purchase for today.';
+          const btns = document.getElementById('structure-buttons');
+          btns.innerHTML = '';
+          (job.structure_options || []).forEach((label, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-gold';
+            btn.style.cssText = 'width:100%;text-align:left;padding:14px 18px;font-size:15px;';
+            btn.textContent = label;
+            btn.onclick = () => selectStructure(i);
+            btns.appendChild(btn);
+          });
+          show('structure');
+        }
+        continue;
+      }
+
+      if (onStructureScreen && job.status === 'running') {
+        onStructureScreen = false;
+        show('loading');
+      }
+
+      if (job.status === 'awaiting_vehicle_selection') {
+        if (!onVehicleScreen) {
+          onVehicleScreen = true;
+          const btns = document.getElementById('vehicle-buttons');
+          btns.innerHTML = '';
+          (job.vehicle_labels || ['Vehicle 1', 'Vehicle 2']).forEach((label, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-outline';
+            btn.style.cssText = 'width:100%;text-align:left;padding:14px 18px;font-size:15px;';
+            btn.textContent = label;
+            btn.onclick = () => selectVehicle(i);
+            btns.appendChild(btn);
+          });
+          show('vehicle');
+        }
+        continue;
+      }
+
       // If we were on DUO screen and status changed, go back to loading
       if (onDuoScreen && job.status === 'running') {
         onDuoScreen = false;
+        show('loading');
+      }
+
+      if (onVehicleScreen && job.status === 'running') {
+        onVehicleScreen = false;
         show('loading');
       }
 
@@ -1170,6 +1240,50 @@ async function switchDuoToPasscode() {
     // Poll loop will automatically show the passcode screen when status changes.
   } catch (err) {
     // Silently ignore — poll loop will handle state
+  }
+}
+
+// ── Structure selection ────────────────────────────────────────────────────
+async function selectStructure(index) {
+  try {
+    await fetch('/api/structure/' + currentJobId, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ index }),
+    });
+    show('loading');
+    document.getElementById('loading-msg').textContent = 'Got it — continuing...';
+  } catch (err) {
+    // poll loop will handle state
+  }
+}
+
+async function cancelStructure() {
+  try {
+    await fetch('/api/structure/' + currentJobId, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ index: -1 }),
+    });
+    show('loading');
+    document.getElementById('loading-msg').textContent = 'Cancelling...';
+  } catch (err) {
+    // poll loop will handle state
+  }
+}
+
+// ── Vehicle selection ──────────────────────────────────────────────────────
+async function selectVehicle(index) {
+  try {
+    await fetch('/api/vehicle/' + currentJobId, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ index }),
+    });
+    show('loading');
+    document.getElementById('loading-msg').textContent = 'Vehicle selected...';
+  } catch (err) {
+    // poll loop will handle state
   }
 }
 

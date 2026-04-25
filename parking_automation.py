@@ -597,7 +597,7 @@ def _enter_permit_flow(page, cb):
     return None
 
 
-def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False):
+def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehicle_provider=None, structure_provider=None):
     """Steps 6–9: permit → vehicle → structure → checkout.
     Called from both the full flow and the cached-session fast path.
 
@@ -690,15 +690,32 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False):
     page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
     page.get_by_role("checkbox").first.wait_for(timeout=config.PAGE_LOAD_TIMEOUT)
     checkboxes = page.get_by_role("checkbox").all()
-    checked = 0
-    for cb_el in checkboxes:
-        try:
-            cb_el.check()
-            checked += 1
-        except Exception:
-            pass
-    if checked == 0:
+    if len(checkboxes) == 0:
         raise Exception("No vehicles found on your UCLA account — add a vehicle at bruinepermit.t2hosted.com first.")
+
+    if len(checkboxes) >= 2 and vehicle_provider is not None:
+        labels = []
+        for i, cb_el in enumerate(checkboxes):
+            try:
+                label = cb_el.evaluate(
+                    "el => { let row = el.closest('tr'); if (row) return row.innerText.trim();"
+                    " let p = el.parentElement; return p ? p.innerText.trim() : ''; }"
+                )
+                label = " ".join(label.split())
+            except Exception:
+                label = ""
+            labels.append(label or f"Vehicle {i + 1}")
+        chosen = vehicle_provider(labels)
+        try:
+            checkboxes[chosen].check()
+        except Exception:
+            checkboxes[0].check()
+    else:
+        try:
+            checkboxes[0].check()
+        except Exception:
+            raise Exception("Could not select vehicle — check your UCLA account at bruinepermit.t2hosted.com.")
+
     page.get_by_role("button", name="Next >>").click()
 
     # Step 8: Select parking structure
@@ -717,34 +734,37 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False):
     )
 
     if not selected_available:
-        if structure == config.STRUCTURE_4:
-            alt_structure, sold_out_name, alt_name = config.STRUCTURE_P7, "P4", "P7"
-        else:
-            alt_structure, sold_out_name, alt_name = config.STRUCTURE_4, "P7", "P4"
+        real_options = [o for o in available_options
+                        if not o.get('disabled', False)
+                        and o['value'] not in ('', 'Select One', '-1', '0')]
 
-        alt_available = any(
-            o["value"] == alt_structure and not o.get("disabled", False)
-            for o in available_options
-        )
+        if not real_options:
+            print(f"[JUSTIN DROPDOWN] Full options: {available_options}", flush=True)
+            raise Exception("No parking structures are available today — check bruinepermit.t2hosted.com.")
 
-        if alt_available:
-            cb(f"{sold_out_name} is sold out — automatically switching to {alt_name}...")
-            structure = alt_structure
+        _structure_names = {
+            config.STRUCTURE_4: "P4", config.STRUCTURE_P7: "P7", config.STRUCTURE_32: "P32"
+        }
+        sold_out_name = _structure_names.get(structure, "Your preferred structure")
+
+        if structure_provider is not None:
+            chosen_value = structure_provider(real_options, sold_out_name)
+            if chosen_value is None:
+                raise Exception("Purchase cancelled — your preferred parking structure was sold out.")
+            structure = chosen_value
         else:
-            # Neither configured value matched — UCLA may have changed dropdown values.
-            # If exactly one real option is available, use it rather than failing.
-            real_options = [o for o in available_options
-                            if not o.get('disabled', False)
-                            and o['value'] not in ('', 'Select One', '-1', '0')]
-            if len(real_options) == 1:
-                print(f"[JUSTIN DROPDOWN] Config values outdated — using only available option: {real_options[0]}", flush=True)
+            # Fallback when no provider is wired up: auto-switch to configured alternate
+            alt = config.STRUCTURE_P7 if structure == config.STRUCTURE_4 else config.STRUCTURE_4
+            alt_opt = next((o for o in real_options if o['value'] == alt), None)
+            if alt_opt:
+                cb(f"{sold_out_name} is sold out — automatically switching...")
+                structure = alt
+            elif len(real_options) == 1:
                 cb(f"Selecting {real_options[0]['text']}...")
                 structure = real_options[0]['value']
             else:
-                avail = [o['text'] for o in real_options]
-                avail_str = ", ".join(avail) if avail else "none"
-                print(f"[JUSTIN DROPDOWN] Full options: {available_options}", flush=True)
-                raise Exception(f"Both P4 and P7 are sold out — available structures today: {avail_str}.")
+                avail_str = ", ".join(o['text'] for o in real_options)
+                raise Exception(f"{sold_out_name} is sold out — available today: {avail_str}.")
 
     dropdown.select_option(structure)
     page.get_by_role("button", name="Next >>").click()
@@ -806,7 +826,7 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False):
 
 def _do_purchase_full(page, context, username, password, structure, cb, duo_provider,
                       duo_method="push", dry_run=False, save_session_for=None,
-                      check_passcode_switch=None):
+                      check_passcode_switch=None, vehicle_provider=None, structure_provider=None):
     """Full flow: navigate → UCLA login → Duo → permit steps.
 
     save_session_for: if set (username string), saves browser session after
@@ -814,7 +834,7 @@ def _do_purchase_full(page, context, username, password, structure, cb, duo_prov
     """
     cart_ready_status = _enter_permit_flow(page, cb)
     if cart_ready_status == "cart_ready":
-        return _run_permit_steps(page, structure, cb, dry_run, cart_ready=True)
+        return _run_permit_steps(page, structure, cb, dry_run, cart_ready=True, vehicle_provider=vehicle_provider, structure_provider=structure_provider)
 
     # Step 3: UCLA SSO login
     cb("Logging in with your UCLA credentials...")
@@ -882,10 +902,10 @@ def _do_purchase_full(page, context, username, password, structure, cb, duo_prov
         page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
         print(f"[JUSTIN REENTER] URL: {page.url}", flush=True)
 
-    return _run_permit_steps(page, structure, cb, dry_run)
+    return _run_permit_steps(page, structure, cb, dry_run, vehicle_provider=vehicle_provider, structure_provider=structure_provider)
 
 
-def _do_purchase_cached(page, structure, cb, dry_run=False):
+def _do_purchase_cached(page, structure, cb, dry_run=False, vehicle_provider=None, structure_provider=None):
     """Fast path: restored session, skip UCLA login + Duo entirely.
 
     Raises if the session turned out to be expired (caller falls back to full flow).
@@ -901,7 +921,7 @@ def _do_purchase_cached(page, structure, cb, dry_run=False):
 
     # If orphaned cart handling landed us at the cart, go straight to checkout
     if cart_ready_status == "cart_ready":
-        return _run_permit_steps(page, structure, cb, dry_run, cart_ready=True)
+        return _run_permit_steps(page, structure, cb, dry_run, cart_ready=True, vehicle_provider=vehicle_provider, structure_provider=structure_provider)
 
     # May have landed off the permit path (e.g. Account/Portal dashboard)
     # Skip this navigation if already on a cart page
@@ -925,7 +945,7 @@ def _do_purchase_cached(page, structure, cb, dry_run=False):
             pass
         page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
 
-    return _run_permit_steps(page, structure, cb, dry_run)
+    return _run_permit_steps(page, structure, cb, dry_run, vehicle_provider=vehicle_provider, structure_provider=structure_provider)
 
 
 # ── Network capture (API discovery) ──────────────────────────────────────────
@@ -1067,7 +1087,7 @@ def _setup_page(context):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def run_purchase(username, password, structure, callback, duo_provider, duo_method="push",
-                 dry_run=False, real_dry_run=False, check_passcode_switch=None):
+                 dry_run=False, real_dry_run=False, check_passcode_switch=None, vehicle_provider=None, structure_provider=None):
     """Run the full purchase flow for one user.
 
     dry_run=True      — mock flow (no browser), tests the web UI state machine.
@@ -1109,7 +1129,7 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
             context = _make_context(browser, storage_state=cached_session)
             page = _setup_page(context)
             try:
-                result = _do_purchase_cached(page, structure, cb, dry_run=actual_dry_run)
+                result = _do_purchase_cached(page, structure, cb, dry_run=actual_dry_run, vehicle_provider=vehicle_provider, structure_provider=structure_provider)
                 _screenshot(page, "success")
                 print(f"[JUSTIN CACHE] Fast path succeeded!", flush=True)
                 return result
@@ -1140,6 +1160,7 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
                     page, context, username, password, structure,
                     cb, duo_provider, duo_method=duo_method, dry_run=actual_dry_run,
                     save_session_for=username, check_passcode_switch=check_passcode_switch,
+                    vehicle_provider=vehicle_provider, structure_provider=structure_provider,
                 )
                 _screenshot(page, "success")
                 return result
