@@ -258,6 +258,15 @@ def api_buy():
                 _update(jid, status="running", message="Vehicle selected...")
                 return idx
 
+            def on_config_drift(name, old_val, new_val):
+                print(f"[JUSTIN CONFIG_DRIFT] {name} ID changed {old_val} → {new_val} — update config.py", flush=True)
+                threading.Thread(
+                    target=_send_push,
+                    args=(f"⚠️ Justin config drift detected",
+                          f"{name} dropdown ID changed from {old_val} to {new_val}. Update STRUCTURE_{name.lstrip('P')} in config.py."),
+                    daemon=True,
+                ).start()
+
             def structure_provider(options, sold_out_name):
                 values = [o["value"] for o in options]
                 _update(jid, status="awaiting_structure_selection",
@@ -285,6 +294,7 @@ def api_buy():
                 check_passcode_switch=check_passcode_switch,
                 vehicle_provider=vehicle_provider,
                 structure_provider=structure_provider,
+                on_config_drift=on_config_drift,
             )
 
             if result == "dry_run":
@@ -403,6 +413,36 @@ def _save_subs(subs):
     )
     with _ur.urlopen(req, timeout=10) as r:
         r.read()
+
+
+def _send_push(title, body):
+    try:
+        subs = _load_subs()
+        if not subs:
+            return
+        from pywebpush import webpush, WebPushException
+        vapid_private = os.environ.get('VAPID_PRIVATE_KEY', '').strip()
+        vapid_claims  = {'sub': 'mailto:djnurre@gmail.com'}
+        expired = []
+        for sub in subs:
+            try:
+                webpush(
+                    subscription_info=sub,
+                    data=_json_mod.dumps({'title': title, 'body': body}),
+                    vapid_private_key=vapid_private,
+                    vapid_claims=vapid_claims,
+                )
+            except WebPushException as ex:
+                if ex.response and ex.response.status_code in (404, 410):
+                    expired.append(sub['endpoint'])
+            except Exception:
+                pass
+        if expired:
+            with _push_lock:
+                clean = [s for s in _load_subs() if s.get('endpoint') not in expired]
+                _save_subs(clean)
+    except Exception as ex:
+        print(f"[JUSTIN PUSH] Admin alert failed: {ex}", flush=True)
 
 
 @app.route('/api/vapid-public-key')
