@@ -260,12 +260,6 @@ def api_buy():
 
             def on_config_drift(name, old_val, new_val):
                 print(f"[JUSTIN CONFIG_DRIFT] {name} ID changed {old_val} → {new_val} — update config.py", flush=True)
-                threading.Thread(
-                    target=_send_push,
-                    args=(f"⚠️ Justin config drift detected",
-                          f"{name} dropdown ID changed from {old_val} to {new_val}. Update STRUCTURE_{name.lstrip('P')} in config.py."),
-                    daemon=True,
-                ).start()
 
             def structure_provider(options, sold_out_name):
                 values = [o["value"] for o in options]
