@@ -301,10 +301,15 @@ def api_buy():
                         result={"dry_run": False, "detail": result})
 
         except AlreadyHasActivePermit as e:
-            print(f"[JUSTIN] Already has active permit: {e}", flush=True)
-            _update(jid, status="done",
-                    message=f"You're already covered! You have an active permit at this structure: {e}. No daily purchase needed.",
-                    result={"already_covered": True})
+            permit_info = str(e)
+            already_today = "already purchased today" in permit_info
+            msg = (
+                f"Already purchased today! Your permit is active: {permit_info}."
+                if already_today else
+                f"You're already covered! Active permit found: {permit_info}. No daily purchase needed."
+            )
+            print(f"[JUSTIN] Already has active permit: {permit_info}", flush=True)
+            _update(jid, status="done", message=msg, result={"already_covered": True})
         except Exception as e:
             import traceback
             print(f"[JUSTIN ERROR] {traceback.format_exc()}", flush=True)

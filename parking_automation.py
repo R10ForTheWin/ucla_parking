@@ -372,7 +372,7 @@ def _handle_duo(page, method, duo_provider, cb, check_passcode_switch=None):
     cb("DUO verified!")
 
 
-_PERMIT_EXCLUDED = ["quarterly", "quarter", "night", "annual", "monthly", "spring", "fall", "winter", "summer"]
+_PERMIT_EXCLUDED = ["quarterly", "quarter", "night", "annual", "monthly"]
 
 def _permit_label_is_daily(label_text):
     """Return True only if the label looks like a 1-day permit, not quarterly/night/long-term."""
@@ -481,15 +481,16 @@ _STRUCTURE_NAMES = {
     config.STRUCTURE_32: ("P32", ["structure 32", "str 32", "str. 32"]),
 }
 
-_LONG_TERM_KEYWORDS = ["quarterly", "quarter", "annual", "monthly", "spring", "fall", "winter", "summer"]
+_LONG_TERM_KEYWORDS = ["quarterly", "quarter", "annual", "monthly"]
 
 
-def _check_active_long_term_permit(page, structure_value):
-    """After login, check the permit list for an active quarterly/long-term permit
-    at the target structure that covers today's date.
+def _check_already_has_permit_today(page, structure_value):
+    """After login, check the permit list for any active permit at the target structure
+    that already covers today — either a long-term/quarterly permit or a daily already
+    purchased today (guards against double-purchase on retry).
 
-    Returns a human-readable string (permit number + expiry) if found, else None.
-    Always silently returns None on any navigation or parse error — never blocks the flow.
+    Returns a human-readable string if found, else None.
+    Always silently returns None on any error — never blocks the flow.
     """
     try:
         from datetime import datetime
@@ -502,6 +503,7 @@ def _check_active_long_term_permit(page, structure_value):
             from datetime import timezone, timedelta
             today = datetime.now(timezone(timedelta(hours=utc_offset))).date()
 
+        today_fmt = today.strftime("%m/%d/%Y")
         _, structure_keywords = _STRUCTURE_NAMES.get(structure_value, ("", []))
 
         page.goto(
@@ -517,11 +519,12 @@ def _check_active_long_term_permit(page, structure_value):
                 cells = row.locator("td").all()
                 if len(cells) < 6:
                     continue
-                permit_num  = cells[0].inner_text().strip()
-                permit_type = cells[1].inner_text().strip()
-                status      = cells[2].inner_text().strip().lower()
-                expiry_text = cells[5].inner_text().strip()
-                location    = cells[6].inner_text().strip().lower() if len(cells) > 6 else ""
+                permit_num    = cells[0].inner_text().strip()
+                permit_type   = cells[1].inner_text().strip()
+                status        = cells[2].inner_text().strip().lower()
+                effective_text = cells[4].inner_text().strip()
+                expiry_text   = cells[5].inner_text().strip()
+                location      = cells[6].inner_text().strip().lower() if len(cells) > 6 else ""
 
                 if status != "active":
                     continue
@@ -529,18 +532,29 @@ def _check_active_long_term_permit(page, structure_value):
                 type_lower = permit_type.lower()
                 loc_lower  = location.lower()
                 at_structure = any(kw in type_lower or kw in loc_lower for kw in structure_keywords)
-                is_long_term = any(kw in type_lower for kw in _LONG_TERM_KEYWORDS)
-
-                if not (at_structure and is_long_term):
+                if not at_structure:
                     continue
 
                 try:
-                    expiry = datetime.strptime(expiry_text, "%m/%d/%Y").date()
-                    if today <= expiry:
-                        print(f"[JUSTIN PERMIT_CHECK] Active long-term permit found: #{permit_num} ({permit_type}) expires {expiry_text}", flush=True)
-                        return f"#{permit_num} ({permit_type}) — expires {expiry_text}"
+                    effective = datetime.strptime(effective_text, "%m/%d/%Y").date()
+                    expiry    = datetime.strptime(expiry_text,    "%m/%d/%Y").date()
                 except ValueError:
-                    pass
+                    continue
+
+                # Permit must be currently valid (effective ≤ today ≤ expiry)
+                if not (effective <= today <= expiry):
+                    continue
+
+                is_long_term = any(kw in type_lower for kw in _LONG_TERM_KEYWORDS)
+                is_daily_today = (effective == today == expiry)  # 1-day permit effective and expiring today
+
+                if is_long_term:
+                    print(f"[JUSTIN PERMIT_CHECK] Active long-term permit: #{permit_num} ({permit_type}) {effective_text}–{expiry_text}", flush=True)
+                    return f"#{permit_num} ({permit_type}) — expires {expiry_text}"
+                elif is_daily_today:
+                    print(f"[JUSTIN PERMIT_CHECK] Daily permit already purchased today: #{permit_num} ({permit_type})", flush=True)
+                    return f"#{permit_num} ({permit_type}) — already purchased today"
+
             except Exception:
                 continue
     except Exception as e:
@@ -1033,7 +1047,7 @@ def _do_purchase_full(page, context, username, password, structure, cb, duo_prov
         _save_session(save_session_for, context.storage_state())
 
     cb("Checking for existing permits...")
-    existing = _check_active_long_term_permit(page, structure)
+    existing = _check_already_has_permit_today(page, structure)
     if existing:
         raise AlreadyHasActivePermit(existing)
 
@@ -1084,7 +1098,7 @@ def _do_purchase_cached(page, structure, cb, dry_run=False, vehicle_provider=Non
 
     print(f"[JUSTIN CACHE] Fast path active — skipped login & Duo", flush=True)
     cb("Session restored — checking for existing permits...")
-    existing = _check_active_long_term_permit(page, structure)
+    existing = _check_already_has_permit_today(page, structure)
     if existing:
         raise AlreadyHasActivePermit(existing)
 
