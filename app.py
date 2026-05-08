@@ -210,7 +210,7 @@ def api_buy():
                     message="Justin is helping another EMBA with their parking right now. You are next in line. Please standby!")
 
         try:
-            from parking_automation import run_purchase
+            from parking_automation import run_purchase, AlreadyHasActivePermit
 
             def duo_provider():
                 """Notify UI of DUO state.
@@ -300,6 +300,11 @@ def api_buy():
                         message="Parking purchased! Check your inbox for a confirmation email.",
                         result={"dry_run": False, "detail": result})
 
+        except AlreadyHasActivePermit as e:
+            print(f"[JUSTIN] Already has active permit: {e}", flush=True)
+            _update(jid, status="done",
+                    message=f"You're already covered! You have an active permit at this structure: {e}. No daily purchase needed.",
+                    result={"already_covered": True})
         except Exception as e:
             import traceback
             print(f"[JUSTIN ERROR] {traceback.format_exc()}", flush=True)

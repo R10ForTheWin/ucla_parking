@@ -84,6 +84,12 @@ class PurchaseAlreadyAttempted(Exception):
     pass
 
 
+class AlreadyHasActivePermit(Exception):
+    """Raised when the user already has an active quarterly/long-term permit covering today.
+    Not an error — just means no daily purchase is needed."""
+    pass
+
+
 def _ensure_screenshot_dir():
     os.makedirs(config.SCREENSHOT_DIR, exist_ok=True)
 
@@ -469,6 +475,112 @@ def _verify_purchase_success(page):
         return None
 
 
+_STRUCTURE_NAMES = {
+    config.STRUCTURE_4:  ("P4", ["structure 4", "str 4", "str. 4"]),
+    config.STRUCTURE_P7: ("P7", ["structure 7", "str 7", "str. 7", "p7"]),
+    config.STRUCTURE_32: ("P32", ["structure 32", "str 32", "str. 32"]),
+}
+
+_LONG_TERM_KEYWORDS = ["quarterly", "quarter", "annual", "monthly", "spring", "fall", "winter", "summer"]
+
+
+def _check_active_long_term_permit(page, structure_value):
+    """After login, check the permit list for an active quarterly/long-term permit
+    at the target structure that covers today's date.
+
+    Returns a human-readable string (permit number + expiry) if found, else None.
+    Always silently returns None on any navigation or parse error — never blocks the flow.
+    """
+    try:
+        from datetime import datetime
+        try:
+            from zoneinfo import ZoneInfo
+            today = datetime.now(ZoneInfo("America/Los_Angeles")).date()
+        except ImportError:
+            import time as _t
+            utc_offset = -8 if _t.localtime().tm_isdst == 0 else -7
+            from datetime import timezone, timedelta
+            today = datetime.now(timezone(timedelta(hours=utc_offset))).date()
+
+        _, structure_keywords = _STRUCTURE_NAMES.get(structure_value, ("", []))
+
+        page.goto(
+            "https://bruinepermit.t2hosted.com/per/listpermit.aspx",
+            timeout=config.PAGE_LOAD_TIMEOUT,
+            wait_until="domcontentloaded",
+        )
+        page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
+
+        rows = page.locator("table tr").all()
+        for row in rows:
+            try:
+                cells = row.locator("td").all()
+                if len(cells) < 6:
+                    continue
+                permit_num  = cells[0].inner_text().strip()
+                permit_type = cells[1].inner_text().strip()
+                status      = cells[2].inner_text().strip().lower()
+                expiry_text = cells[5].inner_text().strip()
+                location    = cells[6].inner_text().strip().lower() if len(cells) > 6 else ""
+
+                if status != "active":
+                    continue
+
+                type_lower = permit_type.lower()
+                loc_lower  = location.lower()
+                at_structure = any(kw in type_lower or kw in loc_lower for kw in structure_keywords)
+                is_long_term = any(kw in type_lower for kw in _LONG_TERM_KEYWORDS)
+
+                if not (at_structure and is_long_term):
+                    continue
+
+                try:
+                    expiry = datetime.strptime(expiry_text, "%m/%d/%Y").date()
+                    if today <= expiry:
+                        print(f"[JUSTIN PERMIT_CHECK] Active long-term permit found: #{permit_num} ({permit_type}) expires {expiry_text}", flush=True)
+                        return f"#{permit_num} ({permit_type}) — expires {expiry_text}"
+                except ValueError:
+                    pass
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"[JUSTIN PERMIT_CHECK] Could not check permit list: {e}", flush=True)
+    return None
+
+
+def _verify_cart_is_daily(page):
+    """Read the cart page before clicking 'Proceed with Transaction'.
+    Raises an exception if the cart contains a quarterly/non-daily permit or
+    if the price exceeds the daily permit ceiling ($30).
+    """
+    try:
+        body = page.inner_text("body")
+        body_lower = body.lower()
+
+        if any(kw in body_lower for kw in _LONG_TERM_KEYWORDS):
+            raise Exception(
+                "Safety check failed: the cart contains a non-daily permit "
+                "(quarterly/seasonal). Purchase cancelled to protect your account. "
+                "Check https://bruinepermit.t2hosted.com and purchase a 1-Day Student permit manually."
+            )
+
+        # Extract any dollar amounts from the cart body and reject if any exceed $30
+        import re as _re
+        amounts = [float(m.replace(",", "")) for m in _re.findall(r'\$\s*([\d,]+\.\d{2})', body)]
+        print(f"[JUSTIN CART_GUARD] Cart amounts: {amounts}", flush=True)
+        suspicious = [a for a in amounts if a > 15]
+        if suspicious:
+            raise Exception(
+                f"Safety check failed: cart total ${max(suspicious):.2f} exceeds the daily permit limit ($15). "
+                f"Purchase cancelled to protect your account. "
+                f"Check https://bruinepermit.t2hosted.com before trying again."
+            )
+    except Exception as e:
+        if "Safety check failed" in str(e):
+            raise
+        print(f"[JUSTIN CART_GUARD] Could not verify cart: {e}", flush=True)
+
+
 # ── Permit flow (steps shared by both full and cached paths) ──────────────────
 
 def _enter_permit_flow(page, cb):
@@ -634,6 +746,7 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
         # Fall through to Step 9 below
         cb("Cart ready — processing transaction...")
         _screenshot(page, "pre_purchase")
+        _verify_cart_is_daily(page)
 
         pre_purchase_url = page.url
         page.get_by_role("button", name=re.compile("Proceed with Transaction", re.IGNORECASE)).click()
@@ -826,6 +939,7 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
     # The checkout flow has two steps on the same URL (crt/collect.aspx):
     #   9a. "Select Payment Method" → click "Proceed with Transaction"
     #   9b. "Payment Information"   → click "Complete Transaction"
+    _verify_cart_is_daily(page)
     cb("Processing transaction — this can take up to 30 seconds...")
     pre_purchase_url = page.url
     page.get_by_role("button", name="Proceed with Transaction").click()
@@ -918,6 +1032,11 @@ def _do_purchase_full(page, context, username, password, structure, cb, duo_prov
     if save_session_for:
         _save_session(save_session_for, context.storage_state())
 
+    cb("Checking for existing permits...")
+    existing = _check_active_long_term_permit(page, structure)
+    if existing:
+        raise AlreadyHasActivePermit(existing)
+
     cb("Navigating to permits...")
     print(f"[JUSTIN POST-DUO] URL: {page.url}", flush=True)
 
@@ -964,7 +1083,10 @@ def _do_purchase_cached(page, structure, cb, dry_run=False, vehicle_provider=Non
         raise Exception("Cached session expired — falling back to full login")
 
     print(f"[JUSTIN CACHE] Fast path active — skipped login & Duo", flush=True)
-    cb("Session restored — skipping Duo...")
+    cb("Session restored — checking for existing permits...")
+    existing = _check_active_long_term_permit(page, structure)
+    if existing:
+        raise AlreadyHasActivePermit(existing)
 
     # If orphaned cart handling landed us at the cart, go straight to checkout
     if cart_ready_status == "cart_ready":
