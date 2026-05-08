@@ -366,13 +366,18 @@ def _handle_duo(page, method, duo_provider, cb, check_passcode_switch=None):
     cb("DUO verified!")
 
 
-def _find_permit_radio(page):
-    for pattern in ["1-Day Student", "1-Day", "Yellow"]:
-        radio = page.get_by_role("radio", name=re.compile(pattern, re.IGNORECASE))
-        if radio.count() > 0:
-            return radio
+_PERMIT_EXCLUDED = ["quarterly", "quarter", "night", "annual", "monthly", "spring", "fall", "winter", "summer"]
 
+def _permit_label_is_daily(label_text):
+    """Return True only if the label looks like a 1-day permit, not quarterly/night/long-term."""
+    lt = label_text.lower()
+    if any(kw in lt for kw in _PERMIT_EXCLUDED):
+        return False
+    return any(kw in lt for kw in ["1-day", "daily", "yellow"])
+
+def _find_permit_radio(page):
     all_radios = page.get_by_role("radio").all()
+    candidates = []
     for radio in all_radios:
         radio_id = radio.get_attribute("id") or ""
         if radio_id:
@@ -380,9 +385,15 @@ def _find_permit_radio(page):
             if label.count() > 0:
                 label_text = label.first.inner_text()
                 print(f"[JUSTIN PERMIT] Radio id={radio_id} label={label_text!r}", flush=True)
-                for pattern in ["1-day student", "1-day", "yellow"]:
-                    if pattern in label_text.lower():
-                        return radio
+                if _permit_label_is_daily(label_text):
+                    candidates.append((radio, label_text))
+
+    # Prefer "1-Day Student" exact match first, then any daily
+    for radio, lbl in candidates:
+        if "1-day student" in lbl.lower():
+            return radio
+    if candidates:
+        return candidates[0][0]
 
     labels = []
     for radio in all_radios:
@@ -523,18 +534,27 @@ def _enter_permit_flow(page, cb):
                     continue
 
         if selected_with_permit and "crt/" in page.url:
-            # Verify the permit in this cart is for today
+            # Verify the permit in this cart is for today AND is a 1-day permit (not quarterly)
             body = page.inner_text("body")
-            if today_fmt in body:
-                print(f"[JUSTIN] Orphaned cart has today's permit ({today_fmt}) — proceeding to checkout", flush=True)
+            body_lower = body.lower()
+            is_today = today_fmt in body
+            is_daily = any(kw in body_lower for kw in ["1-day", "daily"])
+            is_quarterly = any(kw in body_lower for kw in ["quarterly", "quarter"])
+            print(f"[JUSTIN] Orphaned cart check — today={is_today} daily={is_daily} quarterly={is_quarterly}", flush=True)
+            if is_today and is_daily and not is_quarterly:
+                print(f"[JUSTIN] Orphaned cart has today's 1-day permit ({today_fmt}) — proceeding to checkout", flush=True)
                 cb("Found today's permit in cart — proceeding to checkout...")
                 if "bruin bill is not currently available" in body.lower():
                     print(f"[JUSTIN] Note: Bruin Bill warning present — this is non-fatal, continuing", flush=True)
                 return "cart_ready"
             else:
-                # Stale permit from a previous day — cancel it and start fresh
-                print(f"[JUSTIN] Orphaned cart has stale permit (not {today_fmt}) — cancelling", flush=True)
-                cb("Clearing stale cart...")
+                # Stale permit, quarterly, or wrong type — cancel it and start fresh
+                if is_quarterly:
+                    print(f"[JUSTIN] Orphaned cart has a QUARTERLY permit — cancelling, will buy fresh daily", flush=True)
+                    cb("Clearing wrong permit type from cart...")
+                else:
+                    print(f"[JUSTIN] Orphaned cart has stale permit (not {today_fmt}) — cancelling", flush=True)
+                    cb("Clearing stale cart...")
                 try:
                     page.get_by_role("button", name=re.compile("cancel purchase", re.IGNORECASE)).click(timeout=8000)
                     page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
@@ -666,13 +686,27 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
     except Exception as e:
         print(f"[JUSTIN INDEX] Log error: {e}", flush=True)
 
-    for pattern in ["1-Day", "Daily", "Student", "Temporary"]:
+    # Only match daily permit categories — explicitly skip quarterly/night/long-term
+    EXCLUDED_CATEGORY_KEYWORDS = ["quarterly", "quarter", "night", "annual", "monthly"]
+    selected_category = False
+    for pattern in ["1-Day", "Daily"]:
         try:
-            radio = page.get_by_role("radio", name=re.compile(pattern, re.IGNORECASE))
-            if radio.count() > 0:
-                print(f"[JUSTIN INDEX] Selecting permit category: {pattern}", flush=True)
-                radio.first.check()
+            radios_matched = page.get_by_role("radio", name=re.compile(pattern, re.IGNORECASE))
+            for i in range(radios_matched.count()):
+                r = radios_matched.nth(i)
+                rid = r.get_attribute("id") or ""
+                lbl = page.locator(f"label[for='{rid}']").first.inner_text() if rid else ""
+                if not any(kw in lbl.lower() for kw in EXCLUDED_CATEGORY_KEYWORDS):
+                    print(f"[JUSTIN INDEX] Selecting permit category: {lbl!r}", flush=True)
+                    r.check()
+                    selected_category = True
+                    break
+            if selected_category:
                 break
+        except Exception:
+            pass
+    if not selected_category:
+        print(f"[JUSTIN INDEX] WARNING: Could not find a 1-Day/Daily category — will let UCLA default", flush=True)
         except Exception:
             pass
 
