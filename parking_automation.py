@@ -145,8 +145,8 @@ def _wait_for_queue_it(page, cb):
 
     if _is_captcha_active(page):
         raise Exception(
-            "Queue-it is showing a CAPTCHA — the parking site is under heavy load. "
-            "Purchase manually: https://bruinepermit.t2hosted.com"
+            "The UCLA parking site is temporarily overloaded. "
+            "Please buy parking manually at bruinepermit.t2hosted.com."
         )
 
     cb("In the parking site queue — please wait, this may take a few minutes...")
@@ -157,9 +157,9 @@ def _wait_for_queue_it(page, cb):
             cb("Through the queue!")
             return
         if _is_captcha_active(page):
-            raise Exception("CAPTCHA detected — purchase manually: https://bruinepermit.t2hosted.com")
+            raise Exception("The UCLA parking site is temporarily overloaded. Please buy parking manually at bruinepermit.t2hosted.com.")
         time.sleep(5)
-    raise TimeoutError("Stuck in Queue-it waiting room — try again in a moment.")
+    raise TimeoutError("UCLA's parking site is too busy right now. Please try again in a few minutes.")
 
 
 def _handle_duo(page, method, duo_provider, cb, check_passcode_switch=None):
@@ -238,12 +238,12 @@ def _handle_duo(page, method, duo_provider, cb, check_passcode_switch=None):
                 "authentication failed", "wrong password", "please try again",
             ]):
                 raise Exception(
-                    "UCLA login failed — wrong username or password. "
+                    "Your UCLA username or password didn't work. "
                     "Go to Setup and double-check your credentials."
                 )
             raise Exception(
-                f"DUO page did not load (still on {url}). "
-                "Check your UCLA credentials and try again."
+                "Something went wrong during sign-in. "
+                "Check your UCLA credentials in Setup and try again."
             )
         page.wait_for_load_state("networkidle")
 
@@ -353,13 +353,13 @@ def _handle_duo(page, method, duo_provider, cb, check_passcode_switch=None):
             break
     if not clicked:
         _screenshot(page, "duo_no_button")
-        raise Exception("Could not find passcode button on the DUO page — try again.")
+        raise Exception("Duo didn't show the expected options. Please try again.")
 
     try:
         loc.get_by_role("textbox").first.wait_for(timeout=30000)
     except Exception:
         _screenshot(page, "duo_no_textbox")
-        raise Exception("DUO did not show a passcode input — try again.")
+        raise Exception("Duo didn't respond as expected. Please try again.")
 
     code = duo_provider()
     if not code:
@@ -418,13 +418,13 @@ def _find_permit_radio(page):
             )
         listed = ", ".join(f'"{l}"' for l in non_empty)
         raise Exception(
-            f"1-Day Student permits are not available right now — "
+            f"Daily parking isn't available right now — "
             f"the site is only showing: {listed}. "
-            f"You may need to purchase manually: https://bruinepermit.t2hosted.com"
+            f"You may need to buy manually at bruinepermit.t2hosted.com."
         )
     raise Exception(
-        "No permits found on the page — the UCLA parking site may be down or changed. "
-        "Try purchasing manually: https://bruinepermit.t2hosted.com"
+        "No parking options appeared. The UCLA site may be down — "
+        "try buying manually at bruinepermit.t2hosted.com."
     )
 
 
@@ -580,9 +580,8 @@ def _verify_cart_is_daily(page):
 
         if any(kw in body_lower for kw in _LONG_TERM_KEYWORDS):
             raise Exception(
-                "Safety check failed: the cart contains a non-daily permit "
-                "(quarterly/seasonal). Purchase cancelled to protect your account. "
-                "Check https://bruinepermit.t2hosted.com and purchase a 1-Day Student permit manually."
+                "Purchase stopped — the cart had a quarterly permit instead of a daily one. "
+                "Please buy your daily permit manually at bruinepermit.t2hosted.com to be safe."
             )
 
         # Extract any dollar amounts from the cart body and reject if any exceed $30
@@ -592,9 +591,8 @@ def _verify_cart_is_daily(page):
         suspicious = [a for a in amounts if a > 15]
         if suspicious:
             raise Exception(
-                f"Safety check failed: cart total ${max(suspicious):.2f} exceeds the daily permit limit ($15). "
-                f"Purchase cancelled to protect your account. "
-                f"Check https://bruinepermit.t2hosted.com before trying again."
+                f"Purchase stopped — the total (${max(suspicious):.2f}) was higher than expected for a daily permit. "
+                f"Please check bruinepermit.t2hosted.com before trying again."
             )
     except Exception as e:
         if "Safety check failed" in str(e):
@@ -788,15 +786,15 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
                     timeout=config.PAGE_LOAD_TIMEOUT,
                 )
             except Exception:
-                raise Exception("Payment did not advance after clicking 'Complete Transaction' — check manually: https://bruinepermit.t2hosted.com")
+                raise Exception("Something went wrong at the payment step. Check bruinepermit.t2hosted.com to see if the purchase went through.")
         else:
             if page.url == pre_purchase_url:
-                raise Exception("Payment page did not advance — check manually: https://bruinepermit.t2hosted.com")
+                raise Exception("Something went wrong at the payment step. Check bruinepermit.t2hosted.com to see if the purchase went through.")
         _check_payment_failure(page)
         result = _verify_purchase_success(page)
         if result:
             return result
-        raise PurchaseAlreadyAttempted("Transaction was submitted but no confirmation page appeared — check your email and https://bruinepermit.t2hosted.com before trying again.")
+        raise PurchaseAlreadyAttempted("Your payment was submitted but we didn't get a confirmation. Check your email or bruinepermit.t2hosted.com before trying again — you may already be covered.")
 
     # Step 6: Select permit type
     cb("Selecting permit...")
@@ -857,7 +855,7 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
     page.get_by_role("checkbox").first.wait_for(timeout=config.PAGE_LOAD_TIMEOUT)
     checkboxes = page.get_by_role("checkbox").all()
     if len(checkboxes) == 0:
-        raise Exception("No vehicles found on your UCLA account — add a vehicle at bruinepermit.t2hosted.com first.")
+        raise Exception("No vehicle is linked to your UCLA parking account. Please add one at bruinepermit.t2hosted.com first.")
 
     if len(checkboxes) >= 2 and vehicle_provider is not None:
         labels = []
@@ -880,7 +878,7 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
         try:
             checkboxes[0].check()
         except Exception:
-            raise Exception("Could not select vehicle — check your UCLA account at bruinepermit.t2hosted.com.")
+            raise Exception("Couldn't select your vehicle. Please check your UCLA parking account at bruinepermit.t2hosted.com.")
 
     page.get_by_role("button", name="Next >>").click()
 
@@ -924,12 +922,12 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
 
             if not real_options:
                 print(f"[JUSTIN DROPDOWN] Full options: {available_options}", flush=True)
-                raise Exception("No parking structures are available today — check bruinepermit.t2hosted.com.")
+                raise Exception("No parking structures are available today. Please try buying manually at bruinepermit.t2hosted.com.")
 
             if structure_provider is not None:
                 chosen_value = structure_provider(real_options, sold_out_name)
                 if chosen_value is None:
-                    raise Exception("Purchase cancelled — your preferred parking structure was sold out.")
+                    raise Exception("Your preferred parking structure is sold out for today.")
                 structure = chosen_value
             else:
                 # Fallback when no provider is wired up: auto-switch to configured alternate
@@ -943,7 +941,7 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
                     structure = real_options[0]['value']
                 else:
                     avail_str = ", ".join(o['text'] for o in real_options)
-                    raise Exception(f"{sold_out_name} is sold out — available today: {avail_str}.")
+                    raise Exception(f"{sold_out_name} is sold out. Other structures available today: {avail_str}.")
 
     dropdown.select_option(structure)
     page.get_by_role("button", name="Next >>").click()
@@ -1006,18 +1004,18 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
                     print(f"[JUSTIN VERIFY] URL did not change after clicking Complete Transaction — still at {page.url}", flush=True)
                     # Transaction was submitted to UCLA even if we got no redirect —
                     # raise PurchaseAlreadyAttempted so the user isn't double-charged on retry.
-                    raise PurchaseAlreadyAttempted("Transaction was submitted but UCLA's server timed out — check your email and https://bruinepermit.t2hosted.com before trying again.")
+                    raise PurchaseAlreadyAttempted("Your payment was submitted but UCLA's site took too long to respond. Check your email or bruinepermit.t2hosted.com before trying again — you may already be covered.")
     else:
         # No "Complete Transaction" button — "Proceed" navigated directly to confirmation.
         if page.url == pre_purchase_url:
             print(f"[JUSTIN VERIFY] URL did not change after clicking Proceed — still at {page.url}", flush=True)
-            raise Exception("Payment page did not advance — check manually: https://bruinepermit.t2hosted.com")
+            raise Exception("Something went wrong at the payment step. Check bruinepermit.t2hosted.com to see if the purchase went through.")
 
     _check_payment_failure(page)
     result = _verify_purchase_success(page)
     if result:
         return result
-    raise PurchaseAlreadyAttempted("Transaction was submitted but no confirmation page appeared — check your email and https://bruinepermit.t2hosted.com before trying again.")
+    raise PurchaseAlreadyAttempted("Your payment was submitted but we didn't get a confirmation. Check your email or bruinepermit.t2hosted.com before trying again — you may already be covered.")
 
 
 # ── Purchase flows ────────────────────────────────────────────────────────────
@@ -1056,7 +1054,7 @@ def _do_purchase_full(page, context, username, password, structure, cb, duo_prov
             "authentication failed", "wrong password", "please try again",
         ]):
             raise Exception(
-                "UCLA login failed — wrong username or password. "
+                "Your UCLA username or password didn't work. "
                 "Go to Setup and double-check your credentials."
             )
     _screenshot(page, "after_sign_in")

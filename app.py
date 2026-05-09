@@ -572,6 +572,18 @@ _SAFE_ERRORS = (
     "Check your",
     "timed out",
     "check manually",
+    "Duo",
+    "password",
+    "overloaded",
+    "went wrong",
+    "already be covered",
+    "payment step",
+    "parking account",
+    "parking structure",
+    "parking options",
+    "too busy",
+    "higher than expected",
+    "covered for today",
 )
 
 def _safe_error(exc):
