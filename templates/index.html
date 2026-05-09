@@ -645,6 +645,19 @@
       </div>
     </button>
 
+    <div id="purchased-card" style="display:none;background:#f0faf2;border:1.5px solid #2DC653;border-radius:16px;padding:18px 20px;">
+      <div style="display:flex;align-items:center;gap:14px;">
+        <span style="font-size:36px;line-height:1;flex-shrink:0;">✅</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:17px;font-weight:800;color:#1a6b35;">Parking Secured</div>
+          <div id="purchased-sub" style="font-size:13px;color:#4a7a58;margin-top:2px;"></div>
+        </div>
+      </div>
+      <div style="margin-top:12px;text-align:right;">
+        <span onclick="showBuyAgain()" style="font-size:12px;color:#6c757d;text-decoration:underline;cursor:pointer;">Buy again</span>
+      </div>
+    </div>
+
     <div id="notif-row" class="notif-toggle-row" style="display:none;margin-top:24px;" onclick="toggleNotifications()">
       <div style="position:relative;width:44px;height:26px;flex-shrink:0;pointer-events:none;">
         <span id="notif-toggle-visual" style="position:absolute;inset:0;background:#ccc;border-radius:13px;transition:background .2s;display:block;"></span>
@@ -912,18 +925,13 @@ function loadHome() {
     buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Buy Parking at UCLA</span><span style="font-size:12px;font-weight:500;opacity:0.85;">Opens bruinepermit.t2hosted.com in your browser</span></div>`;
     buyBtn.onclick = () => window.open('https://bruinepermit.t2hosted.com', '_blank');
   } else {
-    // Show "already purchased" banner if we bought parking today
+    // Show confirmation card if already purchased today
     try {
       const rec = JSON.parse(localStorage.getItem('justin_last_purchase') || 'null');
       if (rec && rec.date === today) {
-        const timeStr = rec.time ? `Purchased at ${rec.time}` : 'Purchased today';
-        buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Permit Purchased</span><span style="font-size:12px;font-weight:500;opacity:0.85;">${timeStr} · Tap to buy again</span></div>`;
-      } else {
-        buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Buy Parking Today</span><span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $8.01 · Payment on file</span></div>`;
+        showPurchasedCard(rec);
       }
-    } catch(e) {
-      buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Buy Parking Today</span><span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $8.01 · Payment on file</span></div>`;
-    }
+    } catch(e) {}
     buyBtn.onclick = startBuy;
   }
 }
@@ -1297,6 +1305,21 @@ async function selectVehicle(index) {
   }
 }
 
+// ── Purchased card ─────────────────────────────────────────────────────────
+function showPurchasedCard(rec) {
+  const permitMatch = rec.detail && rec.detail.match(/#?(\w{10,})/);
+  const permitStr = permitMatch ? ` · #${permitMatch[1]}` : '';
+  const timeStr = rec.time ? `Purchased at ${rec.time}` : 'Purchased today';
+  document.getElementById('purchased-sub').textContent = timeStr + permitStr;
+  document.getElementById('buy-btn').style.display = 'none';
+  document.getElementById('purchased-card').style.display = 'block';
+}
+
+function showBuyAgain() {
+  document.getElementById('purchased-card').style.display = 'none';
+  document.getElementById('buy-btn').style.display = 'flex';
+}
+
 // ── Success handler ────────────────────────────────────────────────────────
 function handleSuccess(result) {
   if (result && result.dry_run) {
@@ -1323,7 +1346,9 @@ function handleSuccess(result) {
     // Save purchase record so home screen can show it
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
     const timeStr = new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' });
-    localStorage.setItem('justin_last_purchase', JSON.stringify({ date: today, time: timeStr, detail }));
+    const rec = { date: today, time: timeStr, detail };
+    localStorage.setItem('justin_last_purchase', JSON.stringify(rec));
+    showPurchasedCard(rec);
   }
   show('success');
 }
