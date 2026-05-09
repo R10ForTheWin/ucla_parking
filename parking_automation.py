@@ -409,7 +409,14 @@ def _find_permit_radio(page):
     print(f"[JUSTIN PERMIT] All radios: {labels}", flush=True)
 
     if labels:
-        listed = ", ".join(f'"{l}"' for l in labels if l)
+        non_empty = [l for l in labels if l]
+        # If every available permit is a long-term type, an active permit is already covering today
+        if non_empty and all(any(kw in l.lower() for kw in _LONG_TERM_KEYWORDS) for l in non_empty):
+            listed = ", ".join(f'"{l}"' for l in non_empty)
+            raise AlreadyHasActivePermit(
+                f"Active permit already covers today — UCLA is only offering: {listed}. No daily purchase needed."
+            )
+        listed = ", ".join(f'"{l}"' for l in non_empty)
         raise Exception(
             f"1-Day Student permits are not available right now — "
             f"the site is only showing: {listed}. "
