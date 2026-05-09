@@ -980,8 +980,26 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
                 timeout=config.PAGE_LOAD_TIMEOUT,
             )
         except Exception:
-            print(f"[JUSTIN VERIFY] URL did not change after clicking Complete Transaction — still at {page.url}", flush=True)
-            raise Exception("Payment did not advance after clicking 'Complete Transaction' — check manually: https://bruinepermit.t2hosted.com")
+            # UCLA's server may have been slow (e.g. 504 timeout) — wait for network
+            # to settle, then check page content before giving up.
+            try:
+                page.wait_for_load_state("networkidle", timeout=30000)
+            except Exception:
+                pass
+            if page.url == payment_url:
+                body = ""
+                try:
+                    body = page.inner_text("body")
+                except Exception:
+                    pass
+                success_kws = ["thank you", "confirmed", "permit number", "issued", "approved", "order", "receipt"]
+                if any(kw in body.lower() for kw in success_kws):
+                    print(f"[JUSTIN VERIFY] URL unchanged but success content found — treating as submitted", flush=True)
+                else:
+                    print(f"[JUSTIN VERIFY] URL did not change after clicking Complete Transaction — still at {page.url}", flush=True)
+                    # Transaction was submitted to UCLA even if we got no redirect —
+                    # raise PurchaseAlreadyAttempted so the user isn't double-charged on retry.
+                    raise PurchaseAlreadyAttempted("Transaction was submitted but UCLA's server timed out — check your email and https://bruinepermit.t2hosted.com before trying again.")
     else:
         # No "Complete Transaction" button — "Proceed" navigated directly to confirmation.
         if page.url == pre_purchase_url:
