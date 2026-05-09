@@ -548,6 +548,72 @@ def api_send_push():
     return jsonify({'sent': sent, 'expired_cleaned': len(expired)})
 
 
+# ── Feedback ──────────────────────────────────────────────────────────────
+
+_FEEDBACK_GIST_ID = os.environ.get('FEEDBACK_GIST_ID', '')
+_FEEDBACK_FILE    = 'feedback.json'
+
+
+def _load_feedback():
+    if not _FEEDBACK_GIST_ID or not _GIST_TOKEN:
+        return []
+    try:
+        import urllib.request as _ur
+        req = _ur.Request(
+            f'https://api.github.com/gists/{_FEEDBACK_GIST_ID}',
+            headers={'Authorization': f'token {_GIST_TOKEN}', 'Accept': 'application/vnd.github+json'},
+        )
+        with _ur.urlopen(req, timeout=10) as r:
+            data = _json_mod.loads(r.read())
+        return _json_mod.loads(data['files'][_FEEDBACK_FILE]['content'])
+    except Exception:
+        return []
+
+
+def _save_feedback(entries):
+    if not _FEEDBACK_GIST_ID or not _GIST_TOKEN:
+        return
+    import urllib.request as _ur
+    payload = _json_mod.dumps({'files': {_FEEDBACK_FILE: {'content': _json_mod.dumps(entries, indent=2)}}}).encode()
+    req = _ur.Request(
+        f'https://api.github.com/gists/{_FEEDBACK_GIST_ID}',
+        data=payload,
+        headers={'Authorization': f'token {_GIST_TOKEN}', 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'},
+        method='PATCH',
+    )
+    with _ur.urlopen(req, timeout=10) as r:
+        r.read()
+
+
+@app.route('/api/feedback', methods=['POST'])
+def submit_feedback():
+    data = request.get_json() or {}
+    message = (data.get('message') or '').strip()
+    if not message:
+        return jsonify({'error': 'empty'}), 400
+    import datetime
+    entry = {
+        'ts': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'message': message,
+    }
+    try:
+        entries = _load_feedback()
+        entries.append(entry)
+        _save_feedback(entries)
+    except Exception as e:
+        app.logger.error('Feedback save failed: %s', e)
+        return jsonify({'error': 'save failed'}), 500
+    return jsonify({'ok': True})
+
+
+@app.route('/api/feedback', methods=['GET'])
+def view_feedback():
+    secret = os.environ.get('PUSH_SECRET', '')
+    if not secret or request.args.get('key') != secret:
+        return jsonify({'error': 'unauthorized'}), 401
+    return jsonify(_load_feedback())
+
+
 # ── Error sanitiser ───────────────────────────────────────────────────────
 
 _SAFE_ERRORS = (

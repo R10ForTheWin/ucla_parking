@@ -669,6 +669,24 @@
       </div>
     </div>
     <div id="notif-err" style="display:none;font-size:13px;color:var(--error);margin:4px 0 0 4px;"></div>
+
+    <div style="margin-top:28px;text-align:center;">
+      <span onclick="openFeedback()" style="font-size:13px;color:var(--muted);text-decoration:underline;cursor:pointer;">Share feedback anonymously</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ FEEDBACK SHEET -->
+<div id="feedback-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:200;align-items:flex-end;justify-content:center;">
+  <div style="background:#fff;border-radius:20px 20px 0 0;padding:28px 24px max(28px,env(safe-area-inset-bottom,28px));width:100%;max-width:480px;">
+    <div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:6px;">How's Justin working for you?</div>
+    <div style="font-size:14px;color:var(--muted);margin-bottom:16px;">Any issues, wins, or suggestions — let us know.</div>
+    <textarea id="feedback-text" rows="4" placeholder="Type your feedback here..." style="width:100%;border:1.5px solid #dde3f0;border-radius:12px;padding:12px 14px;font-size:15px;font-family:inherit;resize:none;outline:none;box-sizing:border-box;"></textarea>
+    <div style="display:flex;gap:12px;margin-top:14px;">
+      <button onclick="closeFeedback()" style="flex:1;padding:13px;border:1.5px solid #dde3f0;border-radius:12px;background:#fff;font-size:15px;font-weight:600;color:var(--muted);cursor:pointer;">Cancel</button>
+      <button onclick="submitFeedback()" id="feedback-submit-btn" style="flex:2;padding:13px;border:none;border-radius:12px;background:var(--blue);color:#fff;font-size:15px;font-weight:700;cursor:pointer;">Submit</button>
+    </div>
+    <div id="feedback-thanks" style="display:none;text-align:center;margin-top:14px;font-size:15px;color:var(--success);font-weight:600;">Thanks for your feedback! ✓</div>
   </div>
 </div>
 
@@ -1351,6 +1369,42 @@ function handleSuccess(result) {
     showPurchasedCard(rec);
   }
   show('success');
+}
+
+// ── Feedback sheet ─────────────────────────────────────────────────────────
+function openFeedback() {
+  document.getElementById('feedback-text').value = '';
+  document.getElementById('feedback-thanks').style.display = 'none';
+  document.getElementById('feedback-submit-btn').disabled = false;
+  document.getElementById('feedback-submit-btn').textContent = 'Submit';
+  document.getElementById('feedback-modal').style.display = 'flex';
+}
+
+function closeFeedback() {
+  document.getElementById('feedback-modal').style.display = 'none';
+}
+
+async function submitFeedback() {
+  const msg = document.getElementById('feedback-text').value.trim();
+  if (!msg) return;
+  const btn = document.getElementById('feedback-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  try {
+    await fetch('/api/feedback', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ message: msg }),
+    });
+    document.getElementById('feedback-thanks').style.display = 'block';
+    document.getElementById('feedback-text').style.display = 'none';
+    setTimeout(closeFeedback, 1800);
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = 'Submit';
+  } finally {
+    document.getElementById('feedback-text').style.display = '';
+  }
 }
 
 // ── PWA service worker ─────────────────────────────────────────────────────
