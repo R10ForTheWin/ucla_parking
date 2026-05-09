@@ -834,8 +834,6 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
             pass
     if not selected_category:
         print(f"[JUSTIN INDEX] WARNING: Could not find a 1-Day/Daily category — will let UCLA default", flush=True)
-        except Exception:
-            pass
 
     page.get_by_role("button", name="Next >>").click()
     page.wait_for_url("**/per/selectpermit.aspx", timeout=config.PAGE_LOAD_TIMEOUT)
