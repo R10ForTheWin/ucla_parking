@@ -1001,9 +1001,11 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
                 if any(kw in body.lower() for kw in success_kws):
                     print(f"[JUSTIN VERIFY] URL unchanged but success content found — treating as submitted", flush=True)
                 else:
-                    print(f"[JUSTIN VERIFY] URL did not change after clicking Complete Transaction — still at {page.url}", flush=True)
-                    # Transaction was submitted to UCLA even if we got no redirect —
-                    # raise PurchaseAlreadyAttempted so the user isn't double-charged on retry.
+                    print(f"[JUSTIN VERIFY] URL did not change after clicking Complete Transaction — checking permit list to confirm", flush=True)
+                    confirmed = _check_already_has_permit_today(page, structure)
+                    if confirmed:
+                        print(f"[JUSTIN VERIFY] Permit confirmed on listpermit.aspx: {confirmed}", flush=True)
+                        raise AlreadyHasActivePermit(f"already purchased today — {confirmed}")
                     raise PurchaseAlreadyAttempted("Your payment was submitted but UCLA's site took too long to respond. Check your email or bruinepermit.t2hosted.com before trying again — you may already be covered.")
     else:
         # No "Complete Transaction" button — "Proceed" navigated directly to confirmation.
@@ -1015,6 +1017,10 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
     result = _verify_purchase_success(page)
     if result:
         return result
+    confirmed = _check_already_has_permit_today(page, structure)
+    if confirmed:
+        print(f"[JUSTIN VERIFY] Permit confirmed on listpermit.aspx after no confirmation page: {confirmed}", flush=True)
+        raise AlreadyHasActivePermit(f"already purchased today — {confirmed}")
     raise PurchaseAlreadyAttempted("Your payment was submitted but we didn't get a confirmation. Check your email or bruinepermit.t2hosted.com before trying again — you may already be covered.")
 
 
