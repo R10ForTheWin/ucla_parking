@@ -210,7 +210,7 @@ def api_buy():
                     message="Justin is helping another EMBA with their parking right now. You are next in line. Please standby!")
 
         try:
-            from parking_automation import run_purchase, AlreadyHasActivePermit
+            from parking_automation import run_purchase, AlreadyHasActivePermit, PurchaseAlreadyAttempted
 
             def duo_provider():
                 """Notify UI of DUO state.
@@ -310,6 +310,10 @@ def api_buy():
             )
             print(f"[JUSTIN] Already has active permit: {permit_info}", flush=True)
             _update(jid, status="done", message=msg, result={"already_covered": True})
+        except PurchaseAlreadyAttempted as e:
+            print(f"[JUSTIN] PurchaseAlreadyAttempted: {e}", flush=True)
+            _update(jid, status="done", message="Your permit was submitted — you're covered.",
+                    result={"already_covered": True, "submitted": True})
         except Exception as e:
             import traceback
             print(f"[JUSTIN ERROR] {traceback.format_exc()}", flush=True)

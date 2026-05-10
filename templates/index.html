@@ -1347,11 +1347,19 @@ function handleSuccess(result) {
     document.getElementById('success-icon').style.display = 'none';
     document.getElementById('success-gif-wrap').style.display = 'block';
   } else if (result && result.already_covered) {
-    document.getElementById('success-title').textContent = "You're Already Covered!";
-    document.getElementById('success-msg').textContent =
-      'You have an active quarterly permit at this structure — no daily purchase needed today.';
+    document.getElementById('success-title').textContent = "You're Covered!";
+    const coveredMsg = result.submitted
+      ? "Your permit was submitted — you're covered for today. Check bruinepermit.t2hosted.com to confirm."
+      : "You already have an active permit for today. No purchase needed.";
+    document.getElementById('success-msg').textContent = coveredMsg;
     document.getElementById('success-icon').style.display = 'none';
     document.getElementById('success-gif-wrap').style.display = 'block';
+    // Set home screen card so it shows "Parking Secured" even on the submitted path
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    const timeStr = new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' });
+    const rec = { date: today, time: timeStr, detail: result.submitted ? 'Submitted' : '' };
+    localStorage.setItem('justin_last_purchase', JSON.stringify(rec));
+    showPurchasedCard(rec);
   } else {
     const detail = (result && result.detail) ? result.detail : '';
     document.getElementById('success-title').textContent = "You're Parked! 🅿️";
