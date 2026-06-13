@@ -112,10 +112,12 @@ jobs:
               sys.exit(1)
 
           # Send push notification (message varies by day)
-          is_wednesday = datetime.datetime.now(ZoneInfo('America/Los_Angeles')).weekday() == 2
+          import config
+          today = datetime.datetime.now(ZoneInfo('America/Los_Angeles')).strftime('%Y-%m-%d')
+          is_elective = today in config.ELECTIVE_DATES
           body = (
-              'Tap to open Justin and buy parking for today. (If you are taking AI for Managers elective)'
-              if is_wednesday else
+              'Tap to open Justin and buy parking for today. (if you are taking an elective)'
+              if is_elective else
               'Tap to open Justin and buy parking for today.'
           )
           req = urllib.request.Request(

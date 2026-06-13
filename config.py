@@ -23,6 +23,14 @@ STRUCTURE_32 = "2129"    # Str 32 - Student Daily Yellow (confirmed 2026-04-02)
 # Screenshots
 SCREENSHOT_DIR = "screenshots"
 
+# Elective-only days — parking is only needed if the user is taking an elective
+ELECTIVE_DATES = {
+    "2026-06-27", "2026-06-28",
+    "2026-07-18", "2026-07-19",
+    "2026-08-08", "2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14",
+    "2026-08-29", "2026-08-30",
+}
+
 # Class days — workflow only runs the purchase flow on these dates
 PARKING_DATES = {
     "2026-01-09", "2026-01-10", "2026-02-13", "2026-02-14", "2026-02-21",

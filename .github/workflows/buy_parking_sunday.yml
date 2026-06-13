@@ -111,7 +111,7 @@ jobs:
               url + '/api/send-push',
               data=json.dumps({
                   'title': "It's a School Day!",
-                  'body':  'Tap to open Justin and buy parking for today. (electives day)'
+                  'body':  'Tap to open Justin and buy parking for today. (if you are taking an elective)'
               }).encode(),
               headers={'Content-Type': 'application/json', 'X-Push-Secret': secret},
               method='POST',
