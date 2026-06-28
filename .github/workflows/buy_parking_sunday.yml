@@ -1,10 +1,12 @@
-name: Buy UCLA Parking (Sunday EVI)
+name: Buy UCLA Parking (Sunday)
 
 on:
   schedule:
     # Fire 2 hours early to absorb GitHub Actions cron delays.
     # Script sleeps until exactly 6:00 AM Pacific before sending prompts.
-    # All EVI dates fall in PDT (Mar–Nov): 4 AM PDT = 11:00 AM UTC
+    # PST (Nov–Mar): 4 AM PST = 12:00 PM UTC
+    - cron: "0 12 * * 0"
+    # PDT (Mar–Nov): 4 AM PDT = 11:00 AM UTC
     - cron: "0 11 * * 0"
   workflow_dispatch:
     inputs:
@@ -34,29 +36,29 @@ jobs:
         run: |
           pip install requests
 
-      - name: Check if today is an EVI class day
+      - name: Check if today is a class day
         id: datecheck
         run: |
           python -c "
-          import datetime, os
+          import config, datetime, os
           from zoneinfo import ZoneInfo
           pacific = ZoneInfo('America/Los_Angeles')
           now = datetime.datetime.now(pacific)
           today = now.strftime('%Y-%m-%d')
           is_manual = '${{ github.event_name }}' == 'workflow_dispatch'
-          EVI_DATES = {'2026-04-12', '2026-05-10', '2026-05-31'}
-          is_class_day = today in EVI_DATES
+          is_class_day = today in config.PARKING_DATES
 
-          # Deduplicate: only proceed if within 150 min of 6 AM target.
+          # Deduplicate: two cron triggers cover PST and PDT.
+          # Only proceed if we're within 150 min of the 6 AM target.
           target = now.replace(hour=6, minute=0, second=0, microsecond=0)
           minutes_to_target = abs((target - now).total_seconds()) / 60
           if not is_manual and minutes_to_target > 150:
-              print(f'Dedup: {minutes_to_target:.0f} min from 6 AM target. Skipping.')
+              print(f'Dedup: {minutes_to_target:.0f} min from 6 AM target. Skipping this cron trigger.')
               is_class_day = False
 
-          print(f'Today (PT): {today}, hour: {now.hour}, EVI class day: {is_class_day}, manual: {is_manual}')
+          print(f'Today (PT): {today}, hour: {now.hour}, class day: {is_class_day}, manual: {is_manual}')
           if not is_class_day and not is_manual:
-              print('Not an EVI class day. Skipping.')
+              print('Not a class day. Skipping.')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'should_run={\"true\" if (is_class_day or is_manual) else \"false\"}\n')
           "
@@ -86,7 +88,8 @@ jobs:
           PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
         run: |
           python - <<'PYEOF'
-          import os, sys, time, urllib.request, json
+          import os, sys, time, urllib.request, json, datetime
+          from zoneinfo import ZoneInfo
 
           url    = os.environ['JUSTIN_URL'].rstrip('/')
           secret = os.environ['PUSH_SECRET']
@@ -107,11 +110,22 @@ jobs:
               print('ERROR: Server did not respond after 12 attempts.')
               sys.exit(1)
 
+          # Send push notification (message varies by day)
+          import config
+          today = datetime.datetime.now(ZoneInfo('America/Los_Angeles')).strftime('%Y-%m-%d')
+          is_elective = today in config.ELECTIVE_DATES
+          special_day = config.SPECIAL_DAYS.get(today)
+          if special_day:
+              body = f'Tap to open Justin and buy parking for today. Good luck on {special_day}!'
+          elif is_elective:
+              body = 'Tap to open Justin and buy parking for today. (if you are taking an elective)'
+          else:
+              body = 'Tap to open Justin and buy parking for today.'
           req = urllib.request.Request(
               url + '/api/send-push',
               data=json.dumps({
                   'title': "It's a School Day!",
-                  'body':  'Tap to open Justin and buy parking for today. (if you are taking an elective)'
+                  'body':  body,
               }).encode(),
               headers={'Content-Type': 'application/json', 'X-Push-Secret': secret},
               method='POST',
