@@ -862,6 +862,10 @@ const ELECTIVE_DATES = new Set([
   "2026-08-29","2026-08-30",
 ]);
 
+const AUGUST_BLOCK_DATES = new Set([
+  "2026-08-10","2026-08-11","2026-08-12","2026-08-13","2026-08-14",
+]);
+
 const SPECIAL_DAYS = {
   "2027-05-01": "Final Defense",
   "2027-06-05": "Demo Day",
@@ -1008,6 +1012,8 @@ function updateNextDayCard() {
     ? 'AI for Managers'
     : EVI_DATES.has(upcoming)
     ? 'EVI elective'
+    : AUGUST_BLOCK_DATES.has(upcoming)
+    ? 'if you are enrolled in August Block'
     : ELECTIVE_DATES.has(upcoming)
     ? 'if you are taking an elective'
     : '';

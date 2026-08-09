@@ -31,6 +31,13 @@ ELECTIVE_DATES = {
     "2026-08-29", "2026-08-30",
 }
 
+# August Block — in-person elective week (Mon-Fri). Everyone enrolled attends,
+# so push notification / home screen show a specific label instead of the
+# generic "(if you are taking an elective)" caveat.
+AUGUST_BLOCK_DATES = {
+    "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14",
+}
+
 # Class days — workflow only runs the purchase flow on these dates
 PARKING_DATES = {
     "2026-01-09", "2026-01-10", "2026-02-13", "2026-02-14", "2026-02-21",

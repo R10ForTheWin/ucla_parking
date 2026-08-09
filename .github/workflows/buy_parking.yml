@@ -8,6 +8,10 @@ on:
     - cron: "0 12 * * 3,5,6"
     # PDT (Mar–Nov): 4 AM PDT = 11:00 AM UTC
     - cron: "0 11 * * 3,5,6"
+    # August Block 2026 (Mon/Tue/Thu 8/10, 8/11, 8/13) — in-person, not the usual Wed/Fri/Sat/Sun schedule.
+    # PARKING_DATES gates the actual run, so this is safe to leave in place afterward.
+    - cron: "0 12 10,11,13 8 *"
+    - cron: "0 11 10,11,13 8 *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -115,11 +119,14 @@ jobs:
           import config
           today = datetime.datetime.now(ZoneInfo('America/Los_Angeles')).strftime('%Y-%m-%d')
           is_elective = today in config.ELECTIVE_DATES
+          is_august_block = today in config.AUGUST_BLOCK_DATES
           special_day = config.SPECIAL_DAYS.get(today)
           if special_day:
               body = f'Tap to open Justin and buy parking for today. Good luck on {special_day}!'
+          elif is_august_block:
+              body = "Tap to open Justin and buy parking for today — if you're enrolled in August Block."
           elif is_elective:
-              body = 'Tap to open Justin and buy parking for today. (if you are taking an elective)'
+              body = "Tap to open Justin and buy parking for today — if you're taking an elective."
           else:
               body = 'Tap to open Justin and buy parking for today.'
           req = urllib.request.Request(
