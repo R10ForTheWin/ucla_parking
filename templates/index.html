@@ -838,13 +838,21 @@ const PARKING_DATES = new Set([
   "2026-05-29","2026-05-30","2026-06-12",
   "2026-06-27","2026-06-28","2026-07-18","2026-07-19",
   "2026-08-08","2026-08-09","2026-08-10","2026-08-11","2026-08-12","2026-08-13","2026-08-14",
-  "2026-08-29","2026-08-30","2026-09-25","2026-09-26","2026-10-02",
+  "2026-08-29","2026-08-30","2026-10-02",
   "2026-10-03","2026-10-16","2026-10-17","2026-10-30","2026-10-31",
-  "2026-11-13","2026-11-14","2026-12-04","2026-12-05","2026-12-11",
-  "2026-12-12","2027-01-08","2027-01-09","2027-01-29","2027-01-30",
-  "2027-02-05","2027-02-06","2027-02-19","2027-02-20","2027-03-05",
-  "2027-03-06","2027-04-02","2027-04-03","2027-04-30","2027-05-01","2027-05-28",
-  "2027-05-29","2027-06-05","2027-06-11",
+  "2026-11-13","2026-11-14","2026-12-04","2026-12-05",
+  "2027-01-08","2027-01-09","2027-01-29","2027-01-30","2027-01-31",
+  "2027-02-05","2027-02-06","2027-03-05",
+  "2027-03-06","2027-04-02","2027-04-03","2027-04-30","2027-05-01",
+  "2027-06-04","2027-06-05","2027-06-11",
+]);
+
+// Class weekends that ONLY apply to the Bi-Weekly section — the Monthly
+// section does not meet those days. Everything else in PARKING_DATES is
+// shared by both sections. Sourced from the REV26 dot calendars (Class of
+// 2027, dated 08.06.2026).
+const BIWEEKLY_ONLY_DATES = new Set([
+  "2026-10-16","2026-10-17","2026-11-13","2026-11-14",
 ]);
 
 const AI_MANAGERS_DATES = new Set([
@@ -1006,7 +1014,7 @@ function updateNextDayCard() {
   const daysAway = Math.round((u - t) / 86400000);
 
 
-  const classLabel = SPECIAL_DAYS[upcoming]
+  const baseLabel = SPECIAL_DAYS[upcoming]
     ? `Good luck on ${SPECIAL_DAYS[upcoming]}!`
     : AI_MANAGERS_DATES.has(upcoming)
     ? 'AI for Managers'
@@ -1017,6 +1025,15 @@ function updateNextDayCard() {
     : ELECTIVE_DATES.has(upcoming)
     ? 'if you are taking an elective'
     : '';
+
+  // Section note: who this class day is for (Bi-Weekly-only weekends vs.
+  // shared weekends). Only shown for plain required class days — elective/
+  // special/AI/EVI labels above already say who the day is relevant to.
+  const classLabel = baseLabel
+    ? baseLabel
+    : BIWEEKLY_ONLY_DATES.has(upcoming)
+    ? 'Bi-Weekly students only'
+    : 'Bi-Weekly + Monthly students';
 
   // Apple Calendar icon
   const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];

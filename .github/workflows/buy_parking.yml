@@ -120,6 +120,7 @@ jobs:
           today = datetime.datetime.now(ZoneInfo('America/Los_Angeles')).strftime('%Y-%m-%d')
           is_elective = today in config.ELECTIVE_DATES
           is_august_block = today in config.AUGUST_BLOCK_DATES
+          is_biweekly_only = today in config.BIWEEKLY_ONLY_DATES
           special_day = config.SPECIAL_DAYS.get(today)
           if special_day:
               body = f'Tap to open Justin and buy parking for today. Good luck on {special_day}!'
@@ -127,8 +128,10 @@ jobs:
               body = "Tap to open Justin and buy parking for today — if you're enrolled in August Block."
           elif is_elective:
               body = "Tap to open Justin and buy parking for today — if you're taking an elective."
+          elif is_biweekly_only:
+              body = "Tap to open Justin and buy parking for today — Bi-Weekly students only."
           else:
-              body = 'Tap to open Justin and buy parking for today.'
+              body = 'Tap to open Justin and buy parking for today — Bi-Weekly + Monthly students.'
           req = urllib.request.Request(
               url + '/api/send-push',
               data=json.dumps({

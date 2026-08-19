@@ -38,7 +38,11 @@ AUGUST_BLOCK_DATES = {
     "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14",
 }
 
-# Class days — workflow only runs the purchase flow on these dates
+# Class days — workflow only runs the purchase flow on these dates.
+# Sourced from the official REV26 dot calendars (Bi-Weekly + Monthly Section
+# Calendars, Class of 2027, dated 08.06.2026). The Bi-Weekly section's
+# schedule is a superset of the Monthly section's (see BIWEEKLY_ONLY_DATES
+# below), so this set follows the Bi-Weekly calendar.
 PARKING_DATES = {
     "2026-01-09", "2026-01-10", "2026-02-13", "2026-02-14", "2026-02-21",
     "2026-02-27", "2026-02-28", "2026-03-06", "2026-03-07", "2026-03-13", "2026-03-14", "2026-03-20", "2026-03-21",
@@ -48,13 +52,22 @@ PARKING_DATES = {
     "2026-05-29", "2026-05-30", "2026-06-12",
     "2026-06-27", "2026-06-28", "2026-07-18", "2026-07-19",
     "2026-08-08", "2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14",
-    "2026-08-29", "2026-08-30", "2026-09-25", "2026-09-26", "2026-10-02",
+    "2026-08-29", "2026-08-30", "2026-10-02",
     "2026-10-03", "2026-10-16", "2026-10-17", "2026-10-30", "2026-10-31",
-    "2026-11-13", "2026-11-14", "2026-12-04", "2026-12-05", "2026-12-11",
-    "2026-12-12", "2027-01-08", "2027-01-09", "2027-01-29", "2027-01-30",
-    "2027-02-05", "2027-02-06", "2027-02-19", "2027-02-20", "2027-03-05",
-    "2027-03-06", "2027-04-02", "2027-04-03", "2027-04-30", "2027-05-01", "2027-05-28",
-    "2027-05-29", "2027-06-05", "2027-06-11",
+    "2026-11-13", "2026-11-14", "2026-12-04", "2026-12-05",
+    "2027-01-08", "2027-01-09", "2027-01-29", "2027-01-30", "2027-01-31",
+    "2027-02-05", "2027-02-06", "2027-03-05",
+    "2027-03-06", "2027-04-02", "2027-04-03", "2027-04-30", "2027-05-01",
+    "2027-06-04", "2027-06-05", "2027-06-11",
+}
+
+# Class weekends that ONLY apply to the Bi-Weekly section — the Monthly
+# section does not meet those days (used in push notifications / home
+# screen to show "who the announcement is for"). Every other date in
+# PARKING_DATES is shared by both sections. Sourced from the REV26 dot
+# calendars (Class of 2027, dated 08.06.2026).
+BIWEEKLY_ONLY_DATES = {
+    "2026-10-16", "2026-10-17", "2026-11-13", "2026-11-14",
 }
 
 # Special capstone days — push notifications and the home screen show a
