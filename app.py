@@ -125,7 +125,58 @@ def _create_job():
 def _update(jid, **kw):
     with _jobs_lock:
         if jid in _jobs:
-            _jobs[jid].update(kw)
+            job = _jobs[jid]
+            msg = kw.get("message")
+            if msg and kw.get("status") not in ("done", "error"):
+                trail = job.setdefault("steps", [])
+                if not trail or trail[-1][1] != msg:
+                    trail.append((round(time.time() - job["created_at"]), msg))
+            job.update(kw)
+
+
+def _alert(title, message, priority="high", tags="warning"):
+    """Admin alert via ntfy.sh (topic in NTFY_TOPIC). Never include usernames."""
+    topic = os.environ.get("NTFY_TOPIC", "").strip()
+    if not topic:
+        return
+
+    def send():
+        import urllib.request as _ur
+        try:
+            req = _ur.Request(
+                f"https://ntfy.sh/{topic}",
+                data=message.encode(),
+                headers={"Title": title.encode("ascii", "ignore").decode(), "Priority": priority, "Tags": tags},
+                method="POST",
+            )
+            with _ur.urlopen(req, timeout=10) as r:
+                r.read()
+        except Exception as ex:
+            print(f"[JUSTIN ALERT] ntfy failed: {ex}", flush=True)
+
+    threading.Thread(target=send, daemon=True).start()
+
+
+def _alert_purchase_problem(jid, headline, detail, username="", structure=""):
+    """Tell the admin where in the flow a user got stuck."""
+    import datetime as _dt
+    from zoneinfo import ZoneInfo
+    with _jobs_lock:
+        job   = _jobs.get(jid, {})
+        steps = list(job.get("steps", []))
+        took  = round(time.time() - job.get("created_at", time.time()))
+    if username:
+        detail = detail.replace(username, "<user>")
+    last = steps[-1][1] if steps else "before the first step"
+    trail = "\n".join(f"  {t // 60}:{t % 60:02d}  {m}" for t, m in steps[-6:])
+    when = _dt.datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%a %b %-d, %-I:%M %p PT")
+    _alert(
+        f"Justin: {headline}",
+        f"Stopped at: {last}\n"
+        f"Reason: {detail[:300]}\n"
+        f"Structure: {structure or '?'} | {took // 60}m {took % 60}s in | {when}\n\n"
+        f"Last steps:\n{trail}",
+    )
 
 
 def _get(jid):
@@ -133,7 +184,7 @@ def _get(jid):
         j = _jobs.get(jid)
         if not j:
             return {"status": "not_found", "message": "Job not found"}
-        return {k: v for k, v in j.items() if k not in ("duo_event", "duo_code", "vehicle_event", "vehicle_index", "structure_event", "structure_index")}
+        return {k: v for k, v in j.items() if k not in ("duo_event", "duo_code", "vehicle_event", "vehicle_index", "structure_event", "structure_index", "steps")}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────
@@ -206,6 +257,9 @@ def api_buy():
             if waited >= 120:
                 _update(jid, status="error",
                         message="Justin is too busy right now — please try again in a moment.")
+                _usage_inc('error: queue full')
+                _alert_purchase_problem(jid, "user turned away (queue full)",
+                                        "Waited 2 min for a free browser slot.", structure=structure)
                 return
             _update(jid, status="queued",
                     message="Justin is helping another EMBA with their parking right now. You are next in line. Please standby!")
@@ -325,9 +379,21 @@ def api_buy():
         except Exception as e:
             import traceback
             print(f"[JUSTIN ERROR] {traceback.format_exc()}", flush=True)
+            shown = _safe_error(e)
+            with _jobs_lock:
+                steps = _jobs.get(jid, {}).get("steps", [])
+                last_step = steps[-1][1] if steps else "start"
             if not dry_run and not real_dry_run:
                 _usage_inc('buy_error')
-            _update(jid, status="error", message=_safe_error(e))
+                _usage_inc(f'error: {last_step}')
+            first_line = (str(e).strip().splitlines() or [type(e).__name__])[0]
+            _alert_purchase_problem(
+                jid,
+                "purchase failed" + (" (test run)" if (dry_run or real_dry_run) else ""),
+                f"{type(e).__name__}: {first_line}\nUser saw: {shown}",
+                username=username, structure=structure,
+            )
+            _update(jid, status="error", message=shown)
         finally:
             _browser_lock.release()
 
@@ -659,6 +725,9 @@ def api_daily_push():
                 print(f"[JUSTIN PUSH] daily-push: failed to record send: {ex}", flush=True)
 
     print(f"[JUSTIN PUSH] daily-push {today} {now.strftime('%H:%M:%S')} PT: sent={sent}", flush=True)
+    if not sent:
+        _alert("Justin: class-day push reached 0 phones",
+               f"{today} {now.strftime('%H:%M')} PT: /api/daily-push sent to 0 subscribers. Check Railway logs.")
     return jsonify({'status': 'sent' if sent else 'failed', 'sent': sent, 'today': today}), (200 if sent else 500)
 
 
