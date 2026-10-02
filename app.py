@@ -172,6 +172,7 @@ def sw_js():
 
 @app.route("/")
 def index():
+    _usage_visit()
     resp = app.make_response(render_template("index.html"))
     resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -278,6 +279,9 @@ def api_buy():
                 _update(jid, status="running", message="Got it — continuing...")
                 return values[idx] if idx < len(values) else None
 
+            if not dry_run and not real_dry_run:
+                _usage_inc('buy_attempts')
+                _usage_purchaser(username)
             result = run_purchase(
                 username, password, structure,
                 callback=lambda m: _update(jid, status="running", message=m),
@@ -292,10 +296,12 @@ def api_buy():
             )
 
             if result == "dry_run":
+                _usage_inc('buy_dry_run')
                 _update(jid, status="done",
                         message="Dry run complete — everything worked up to checkout!",
                         result={"dry_run": True})
             else:
+                _usage_inc('buy_success')
                 _update(jid, status="done",
                         message="Parking purchased! Check your inbox for a confirmation email.",
                         result={"dry_run": False, "detail": result})
@@ -309,14 +315,18 @@ def api_buy():
                 f"You're already covered! Active permit found: {permit_info}. No daily purchase needed."
             )
             print(f"[JUSTIN] Already has active permit: {permit_info}", flush=True)
+            _usage_inc('buy_already_covered')
             _update(jid, status="done", message=msg, result={"already_covered": True})
         except PurchaseAlreadyAttempted as e:
             print(f"[JUSTIN] PurchaseAlreadyAttempted: {e}", flush=True)
+            _usage_inc('buy_already_covered')
             _update(jid, status="done", message="Your permit was submitted — you're covered.",
                     result={"already_covered": True, "submitted": True})
         except Exception as e:
             import traceback
             print(f"[JUSTIN ERROR] {traceback.format_exc()}", flush=True)
+            if not dry_run and not real_dry_run:
+                _usage_inc('buy_error')
             _update(jid, status="error", message=_safe_error(e))
         finally:
             _browser_lock.release()
@@ -518,6 +528,7 @@ def api_subscribe():
         subs.append(sub)
         _save_subs(subs)
     if is_new:
+        _usage_inc('push_subscribes')
         total = len(subs)
         threading.Thread(
             target=_send_admin_email,
@@ -649,6 +660,120 @@ def api_daily_push():
 
     print(f"[JUSTIN PUSH] daily-push {today} {now.strftime('%H:%M:%S')} PT: sent={sent}", flush=True)
     return jsonify({'status': 'sent' if sent else 'failed', 'sent': sent, 'today': today}), (200 if sent else 500)
+
+
+# ── Usage counter ─────────────────────────────────────────────────────────
+# Daily counts in Gist usage.json. No usernames or IPs are stored: visitors are
+# counted via a hash with a per-process random salt (count only), purchasers via
+# an HMAC of the username keyed by ENCRYPTION_KEY (one-way, for a unique count).
+
+_USAGE_FILE = 'usage.json'
+_usage_lock = threading.Lock()
+_usage_pending = {}       # {date: {counter: delta}}
+_usage_visitors = {}      # {date: set(salted visitor hashes)}
+_usage_purchasers = set() # new purchaser HMACs not yet flushed
+_usage_salt = uuid.uuid4().hex
+
+
+def _usage_today():
+    from zoneinfo import ZoneInfo
+    import datetime as _dt
+    return _dt.datetime.now(ZoneInfo('America/Los_Angeles')).strftime('%Y-%m-%d')
+
+
+def _usage_inc(counter, n=1):
+    with _usage_lock:
+        day = _usage_pending.setdefault(_usage_today(), {})
+        day[counter] = day.get(counter, 0) + n
+
+
+def _usage_visit():
+    import hashlib
+    ident = f"{request.headers.get('X-Forwarded-For', request.remote_addr)}|{request.headers.get('User-Agent', '')}"
+    h = hashlib.sha256((_usage_salt + ident).encode()).hexdigest()[:16]
+    with _usage_lock:
+        today = _usage_today()
+        _usage_visitors.setdefault(today, set()).add(h)
+        day = _usage_pending.setdefault(today, {})
+        day['visits'] = day.get('visits', 0) + 1
+
+
+def _usage_purchaser(username):
+    import hashlib, hmac
+    key = os.environ.get('ENCRYPTION_KEY', '').encode()
+    h = hmac.new(key, username.strip().lower().encode(), hashlib.sha256).hexdigest()[:16]
+    with _usage_lock:
+        _usage_purchasers.add(h)
+
+
+def _usage_flush():
+    with _usage_lock:
+        pending    = {d: dict(c) for d, c in _usage_pending.items()}
+        visitors   = {d: len(s) for d, s in _usage_visitors.items()}
+        purchasers = set(_usage_purchasers)
+    if not pending and not purchasers:
+        return
+    usage = _gist_read(_GIST_ID, _USAGE_FILE, {})
+    days = usage.setdefault('days', {})
+    for d, counters in pending.items():
+        day = days.setdefault(d, {})
+        for k, v in counters.items():
+            day[k] = day.get(k, 0) + v
+    for d, n in visitors.items():
+        # Salt resets on restart, so this can undercount a day that spans a restart.
+        days.setdefault(d, {})['visitors'] = max(days[d].get('visitors', 0), n)
+    usage['purchasers'] = sorted(set(usage.get('purchasers', [])) | purchasers)
+    _gist_write(_GIST_ID, _USAGE_FILE, usage, indent=1)
+    with _usage_lock:
+        for d, counters in pending.items():
+            day = _usage_pending.get(d, {})
+            for k, v in counters.items():
+                day[k] = day.get(k, 0) - v
+                if not day[k]:
+                    del day[k]
+            if not day:
+                _usage_pending.pop(d, None)
+        _usage_purchasers.difference_update(purchasers)
+        today = _usage_today()
+        for d in [d for d in _usage_visitors if d != today]:
+            del _usage_visitors[d]
+
+
+def _usage_flush_loop():
+    while True:
+        time.sleep(60)
+        try:
+            _usage_flush()
+        except Exception as ex:
+            print(f"[JUSTIN USAGE] flush failed: {ex}", flush=True)
+
+
+threading.Thread(target=_usage_flush_loop, daemon=True).start()
+
+
+@app.route('/api/usage')
+def api_usage():
+    secret = os.environ.get('PUSH_SECRET', '')
+    token = request.headers.get('X-Push-Secret', '') or request.args.get('key', '')
+    if not secret or token != secret:
+        return jsonify({'error': 'unauthorized'}), 401
+    try:
+        _usage_flush()
+    except Exception as ex:
+        print(f"[JUSTIN USAGE] flush failed: {ex}", flush=True)
+    usage = _gist_read(_GIST_ID, _USAGE_FILE, {})
+    days = usage.get('days', {})
+    totals = {}
+    for counters in days.values():
+        for k, v in counters.items():
+            totals[k] = totals.get(k, 0) + v
+    totals.pop('visitors', None)  # not additive across days
+    return jsonify({
+        'unique_purchasers_all_time': len(usage.get('purchasers', [])),
+        'push_subscriptions_stored': len(_load_subs()),
+        'totals': totals,
+        'days': dict(sorted(days.items(), reverse=True)[:30]),
+    })
 
 
 # ── Feedback ──────────────────────────────────────────────────────────────
