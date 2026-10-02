@@ -731,6 +731,140 @@ def api_daily_push():
     return jsonify({'status': 'sent' if sent else 'failed', 'sent': sent, 'today': today}), (200 if sent else 500)
 
 
+# ── Leave-by time ─────────────────────────────────────────────────────────
+# Google Routes API (traffic-aware) → latest departure that still arrives at the
+# structure ARRIVE_BEFORE_CLASS_MIN before class. The user's location is used
+# The starting address lives on the user's phone (localStorage); the server
+# uses it for the lookup only — never stored or logged (cache keys are hashes
+# held in memory for 10 minutes).
+
+_leave_by_cache = {}   # key → (expires_at, payload)
+_leave_by_hits  = {}   # ip → [timestamps]
+_leave_by_lock  = threading.Lock()
+
+
+def _drive_seconds(origin, dest, depart_utc):
+    import urllib.request as _ur
+    import datetime as _dt
+    key = os.environ.get('GOOGLE_MAPS_API_KEY', '').strip()
+    if 'lat' in dest:
+        destination = {'location': {'latLng': {'latitude': dest['lat'], 'longitude': dest['lng']}}}
+    else:
+        destination = {'address': dest['address']}
+    depart_utc = max(depart_utc, _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=30))
+    body = {
+        'origin': {'address': origin} if isinstance(origin, str)
+                  else {'location': {'latLng': {'latitude': origin[0], 'longitude': origin[1]}}},
+        'destination': destination,
+        'travelMode': 'DRIVE',
+        'routingPreference': 'TRAFFIC_AWARE_OPTIMAL',
+        'departureTime': depart_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+    }
+    req = _ur.Request(
+        'https://routes.googleapis.com/directions/v2:computeRoutes',
+        data=_json_mod.dumps(body).encode(),
+        headers={'Content-Type': 'application/json', 'X-Goog-Api-Key': key,
+                 'X-Goog-FieldMask': 'routes.duration'},
+        method='POST',
+    )
+    with _ur.urlopen(req, timeout=10) as r:
+        routes = _json_mod.loads(r.read()).get('routes') or []
+    if not routes:
+        raise ValueError('no route')
+    return int(routes[0]['duration'].rstrip('s'))
+
+
+def _compute_leave_by(origin, structure, now_pt, drive_seconds=_drive_seconds):
+    import datetime as _dt
+    fmt = lambda t: t.strftime('%-I:%M %p')
+    today = now_pt.strftime('%Y-%m-%d')
+    start = config.class_start(today) if today in config.PARKING_DATES else None
+    if not start:
+        return {'status': 'no_class'}
+    dest = config.STRUCTURE_DESTINATIONS.get(structure) or config.STRUCTURE_DESTINATIONS[config.STRUCTURE_4]
+    h, m = map(int, start.split(':'))
+    class_at  = now_pt.replace(hour=h, minute=m, second=0, microsecond=0)
+    arrive_by = class_at - _dt.timedelta(minutes=config.ARRIVE_BEFORE_CLASS_MIN)
+    if 'lat' in dest:
+        waze = f"https://waze.com/ul?ll={dest['lat']},{dest['lng']}&navigate=yes"
+    else:
+        import urllib.parse as _up
+        waze = f"https://waze.com/ul?q={_up.quote(dest['address'])}&navigate=yes"
+    # Saturday's arrive-by is breakfast (8:00–9:00 on the dot calendar legend).
+    goal = 'breakfast' if class_at.weekday() == 5 else 'be on campus'
+    base = {'arrive_by': fmt(arrive_by), 'class_start': fmt(class_at), 'goal': goal,
+            'destination': dest['name'], 'waze_url': waze}
+    if now_pt >= arrive_by:
+        return {**base, 'status': 'past'}
+
+    utc = _dt.timezone.utc
+    drive = lambda t: drive_seconds(origin, dest, t.astimezone(utc))
+
+    def leave_now():
+        secs = drive(now_pt)
+        eta = now_pt + _dt.timedelta(seconds=secs)
+        return {**base, 'status': 'leave_now', 'drive_min': round(secs / 60), 'eta': fmt(eta),
+                'late_min': max(0, round((eta - arrive_by).total_seconds() / 60))}
+
+    # Fixed-point guess: depart = arrive_by − drive(depart) …
+    depart = max(now_pt, arrive_by - _dt.timedelta(minutes=45))
+    for _ in range(3):
+        new_depart = arrive_by - _dt.timedelta(seconds=drive(depart))
+        if new_depart <= now_pt:
+            return leave_now()
+        converged = abs((new_depart - depart).total_seconds()) < 90
+        depart = new_depart
+        if converged:
+            break
+    # … then verify it really arrives on time; traffic jumps at rush hour can
+    # make the guess optimistic, so step earlier until it does.
+    for _ in range(5):
+        secs = drive(depart)
+        overshoot = (depart + _dt.timedelta(seconds=secs) - arrive_by).total_seconds()
+        if overshoot <= 0:
+            break
+        depart -= _dt.timedelta(seconds=max(300, overshoot))
+        if depart <= now_pt:
+            return leave_now()
+    leave_by = depart.replace(second=0, microsecond=0)  # round down = a little early
+    return {**base, 'status': 'ok', 'leave_by': fmt(leave_by),
+            'leave_by_iso': leave_by.isoformat(), 'drive_min': round(secs / 60)}
+
+
+@app.route('/api/leave-by', methods=['POST'])
+def api_leave_by():
+    if not os.environ.get('GOOGLE_MAPS_API_KEY', '').strip():
+        return jsonify({'status': 'unavailable'})
+    data = request.json or {}
+    address = ' '.join(str(data.get('address') or '').split())
+    if not 5 <= len(address) <= 200:
+        return jsonify({'error': 'address required'}), 400
+    structure = str(data.get('structure') or config.STRUCTURE_4)
+
+    from zoneinfo import ZoneInfo
+    import datetime as _dt
+    now_pt = _dt.datetime.now(ZoneInfo('America/Los_Angeles'))
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+    import hashlib
+    key = (hashlib.sha256(address.lower().encode()).hexdigest()[:16], structure, now_pt.strftime('%Y-%m-%d'))
+    with _leave_by_lock:
+        hit = _leave_by_cache.get(key)
+        if hit and hit[0] > time.time():
+            return jsonify(hit[1])
+        recent = [t for t in _leave_by_hits.get(ip, []) if t > time.time() - 3600]
+        if len(recent) >= 30:
+            return jsonify({'status': 'rate_limited'}), 429
+        _leave_by_hits[ip] = recent + [time.time()]
+    try:
+        payload = _compute_leave_by(address, structure, now_pt)
+    except Exception as ex:
+        print(f"[JUSTIN LEAVE-BY] lookup failed: {type(ex).__name__}: {ex}", flush=True)
+        return jsonify({'status': 'error'}), 502
+    with _leave_by_lock:
+        _leave_by_cache[key] = (time.time() + 600, payload)
+    return jsonify(payload)
+
+
 # ── Usage counter ─────────────────────────────────────────────────────────
 # Daily counts in Gist usage.json. No usernames or IPs are stored: visitors are
 # counted via a hash with a per-process random salt (count only), purchasers via

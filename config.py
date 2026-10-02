@@ -23,6 +23,36 @@ STRUCTURE_32 = "2129"    # Str 32 - Student Daily Yellow (confirmed 2026-04-02)
 # Screenshots
 SCREENSHOT_DIR = "screenshots"
 
+# Leave-by: where each structure is (for Google Routes + Waze) and when class starts.
+# Destinations are place names Google/Waze resolve; P7 coords from OpenStreetMap.
+STRUCTURE_DESTINATIONS = {
+    STRUCTURE_4:  {"name": "Structure 4", "address": "UCLA Parking Structure 4, Los Angeles, CA 90095"},
+    STRUCTURE_P7: {"name": "Structure 7", "address": "UCLA Parking Structure 7, Charles E Young Dr N, Los Angeles, CA 90095",
+                   "lat": 34.0727566, "lng": -118.4469530},
+}
+
+# "Arrive by" = class start minus this many minutes.
+ARRIVE_BEFORE_CLASS_MIN = 60
+
+# Class start times from the REV26 dot calendar's "Typical Schedule" legend:
+# Fri Class A 4:00 PM, Sat Class B 9:00 AM, Sun electives 9:00 AM.
+CLASS_START_BY_WEEKDAY = {4: "16:00", 5: "09:00", 6: "09:00"}  # Mon=0 … Sun=6
+# Dates marked ★ "Mandatory Class starts at 10:00 a.m." on the dot calendar.
+CLASS_START_OVERRIDES = {
+    "2026-10-02": "10:00",
+    "2027-01-08": "10:00",
+    "2027-04-02": "10:00",
+}
+
+
+def class_start(date_str):
+    """'HH:MM' class start for a PARKING_DATES date, or None if unknown."""
+    import datetime as _dt
+    if date_str in CLASS_START_OVERRIDES:
+        return CLASS_START_OVERRIDES[date_str]
+    return CLASS_START_BY_WEEKDAY.get(_dt.date.fromisoformat(date_str).weekday())
+
+
 # Elective-only days — parking is only needed if the user is taking an elective
 ELECTIVE_DATES = {
     "2026-06-27", "2026-06-28",

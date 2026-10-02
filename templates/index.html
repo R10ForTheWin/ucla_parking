@@ -688,8 +688,30 @@
           <div id="purchased-sub" style="font-size:13px;color:#4a7a58;margin-top:2px;"></div>
         </div>
       </div>
-      <div style="margin-top:12px;text-align:right;">
-        <span onclick="showBuyAgain()" style="font-size:12px;color:#6c757d;text-decoration:underline;cursor:pointer;">Buy again</span>
+      <div id="leave-by" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid #cfe8d6;">
+        <button id="leave-by-add" type="button" onclick="showLeaveByForm()"
+          style="width:100%;background:#fff;border:1.5px solid #2DC653;color:#1a6b35;border-radius:12px;padding:12px 14px;font-size:14px;font-weight:700;cursor:pointer;text-align:left;">
+          🚗 Add starting address to estimate departure time based on current traffic
+        </button>
+        <form id="leave-by-form" style="display:none;" onsubmit="saveLeaveByAddress(event)">
+          <label for="leave-by-input" style="display:block;font-size:13px;font-weight:700;color:#1a6b35;margin-bottom:6px;">Starting address</label>
+          <input id="leave-by-input" type="text" autocomplete="street-address" placeholder="e.g. 123 Main St, Pasadena"
+            style="width:100%;box-sizing:border-box;border:1.5px solid #b9dcc4;border-radius:10px;padding:11px 12px;font-size:16px;">
+          <div style="font-size:11px;color:#6c8a75;margin-top:6px;">Saved only on this phone. Used just to look up traffic.</div>
+          <div style="display:flex;gap:10px;margin-top:10px;">
+            <button type="submit" style="flex:1;background:#2DC653;color:#fff;border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;">Save</button>
+            <button type="button" onclick="hideLeaveByForm()" style="background:none;border:none;color:#6c757d;font-size:14px;cursor:pointer;">Cancel</button>
+          </div>
+        </form>
+        <div id="leave-by-result" style="display:none;">
+          <div id="leave-by-headline" style="font-size:16px;font-weight:800;color:#1a6b35;line-height:1.3;"></div>
+          <div id="leave-by-detail" style="font-size:13px;color:#4a7a58;margin-top:4px;"></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+            <a id="leave-by-waze" href="#" target="_blank" rel="noopener"
+              style="background:#33CCFF;color:#fff;text-decoration:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:700;">Open in Waze</a>
+            <span onclick="showLeaveByForm()" style="font-size:12px;color:#6c757d;text-decoration:underline;cursor:pointer;">Change starting address</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1421,11 +1443,92 @@ function showPurchasedCard(rec) {
   document.getElementById('purchased-sub').textContent = timeStr + permitStr;
   document.getElementById('buy-btn').style.display = 'none';
   document.getElementById('purchased-card').style.display = 'block';
+  startLeaveBy(rec.structure);
 }
 
-function showBuyAgain() {
-  document.getElementById('purchased-card').style.display = 'none';
-  document.getElementById('buy-btn').style.display = 'flex';
+// ── Leave-by time (on the Parking Secured tile) ───────────────────────────
+// The starting address is asked for only after purchase, stored on this phone,
+// and sent to the server just to look up current traffic.
+let leaveByStructure = STRUCTURE_4;
+let leaveByTimer = null;
+
+function getLeaveByAddress() {
+  try { return localStorage.getItem('justin_start_address') || ''; } catch (e) { return ''; }
+}
+
+function setLeaveByView(view) {   // 'add' | 'form' | 'result'
+  document.getElementById('leave-by-add').style.display    = view === 'add'    ? 'block' : 'none';
+  document.getElementById('leave-by-form').style.display   = view === 'form'   ? 'block' : 'none';
+  document.getElementById('leave-by-result').style.display = view === 'result' ? 'block' : 'none';
+}
+
+function showLeaveByForm() {
+  document.getElementById('leave-by-input').value = getLeaveByAddress();
+  setLeaveByView('form');
+  document.getElementById('leave-by-input').focus();
+}
+
+function hideLeaveByForm() {
+  getLeaveByAddress() ? refreshLeaveBy() : setLeaveByView('add');
+}
+
+function saveLeaveByAddress(ev) {
+  ev.preventDefault();
+  const addr = document.getElementById('leave-by-input').value.trim();
+  if (addr.length < 5) { document.getElementById('leave-by-input').focus(); return; }
+  try { localStorage.setItem('justin_start_address', addr); } catch (e) {}
+  refreshLeaveBy();
+}
+
+function leaveByMessage(headline, detail, wazeUrl) {
+  document.getElementById('leave-by-headline').textContent = headline;
+  document.getElementById('leave-by-detail').textContent = detail;
+  const waze = document.getElementById('leave-by-waze');
+  waze.style.display = wazeUrl ? 'inline-block' : 'none';
+  if (wazeUrl) waze.href = wazeUrl;
+  setLeaveByView('result');
+}
+
+async function refreshLeaveBy() {
+  const box = document.getElementById('leave-by');
+  const address = getLeaveByAddress();
+  if (!address) { box.style.display = 'block'; setLeaveByView('add'); return; }
+  if (document.getElementById('leave-by-result').style.display !== 'block') {
+    leaveByMessage('Checking traffic…', '', null);
+  }
+  box.style.display = 'block';
+  let r;
+  try {
+    const resp = await fetch('/api/leave-by', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, structure: leaveByStructure }),
+    });
+    r = await resp.json();
+  } catch (e) {
+    leaveByMessage("Couldn't check traffic right now", 'Try again in a minute.', null);
+    return;
+  }
+  const goal = r.goal === 'breakfast' ? `make it to breakfast by ${r.arrive_by}` : `be on campus by ${r.arrive_by}`;
+  if (r.status === 'ok') {
+    leaveByMessage(`Leave by ${r.leave_by} to ${goal}`,
+      `About ${r.drive_min} min to ${r.destination} in current traffic`, r.waze_url);
+  } else if (r.status === 'leave_now') {
+    leaveByMessage(r.late_min > 0 ? `Leave now — traffic puts you there around ${r.eta}` : `Leave now to ${goal}`,
+      `About ${r.drive_min} min to ${r.destination} in current traffic`, r.waze_url);
+  } else if (r.status === 'past' || r.status === 'no_class' || r.status === 'unavailable') {
+    box.style.display = 'none';   // nothing useful to show
+  } else {
+    leaveByMessage("Couldn't find a route from that address", 'Check the address and try again.', null);
+  }
+}
+
+function startLeaveBy(structure) {
+  leaveByStructure = structure || STRUCTURE_4;
+  refreshLeaveBy();
+  clearInterval(leaveByTimer);
+  leaveByTimer = setInterval(() => {
+    if (document.visibilityState === 'visible' && getLeaveByAddress()) refreshLeaveBy();
+  }, 5 * 60 * 1000);
 }
 
 // ── Graduation flip-clock countdown ────────────────────────────────────────
@@ -1483,7 +1586,7 @@ function handleSuccess(result) {
     // Set home screen card so it shows "Parking Secured" even on the submitted path
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
     const timeStr = new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' });
-    const rec = { date: today, time: timeStr, detail: result.submitted ? 'Submitted' : '' };
+    const rec = { date: today, time: timeStr, detail: result.submitted ? 'Submitted' : '', structure: selectedStructure };
     localStorage.setItem('justin_last_purchase', JSON.stringify(rec));
     showPurchasedCard(rec);
     showGradCountdown();
@@ -1499,7 +1602,7 @@ function handleSuccess(result) {
     // Save purchase record so home screen can show it
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
     const timeStr = new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' });
-    const rec = { date: today, time: timeStr, detail };
+    const rec = { date: today, time: timeStr, detail, structure: selectedStructure };
     localStorage.setItem('justin_last_purchase', JSON.stringify(rec));
     showPurchasedCard(rec);
     showGradCountdown();
