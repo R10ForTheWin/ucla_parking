@@ -84,10 +84,43 @@ class PurchaseAlreadyAttempted(Exception):
     pass
 
 
+class UCLARejectedCheckout(Exception):
+    """UCLA bounced the user out of the permit flow (e.g. back to Account/Portal
+    after vehicle selection). Account-specific on UCLA's side — retrying the
+    same flow won't help, so this is not retried."""
+    pass
+
+
 class AlreadyHasActivePermit(Exception):
     """Raised when the user already has an active quarterly/long-term permit covering today.
     Not an error — just means no daily purchase is needed."""
     pass
+
+
+def _wait_for_parking_area(page):
+    # UCLA sometimes rejects an account here by redirecting out of /per/ (seen
+    # 2026-09-30: selectlocation.aspx → 302 → Account/Portal). Detect that
+    # instead of waiting PAGE_LOAD_TIMEOUT for a dropdown that never appears.
+    deadline = time.time() + config.PAGE_LOAD_TIMEOUT / 1000
+    while True:
+        if page.get_by_label("Parking Area").count() and page.get_by_label("Parking Area").first.is_visible():
+            break
+        if "/per/" not in page.url.lower():
+            try:
+                body = page.inner_text("body")
+            except Exception:
+                body = ""
+            print(f"[JUSTIN BOUNCE] UCLA left the permit flow after vehicle selection → {page.url}", flush=True)
+            print(f"[JUSTIN BOUNCE] Page text: {' '.join(body.split())[:1500]}", flush=True)
+            _screenshot(page, "location_bounce")
+            raise UCLARejectedCheckout(
+                "UCLA's parking site sent you back to its home page right after choosing your vehicle, "
+                "so it won't sell a permit to this account right now. Try buying directly at "
+                "bruinepermit.t2hosted.com — it should show you the reason (often an account hold or vehicle issue)."
+            )
+        if time.time() > deadline:
+            page.get_by_label("Parking Area").wait_for(timeout=1)  # raises the usual timeout error
+        time.sleep(0.5)
 
 
 def _ensure_screenshot_dir():
@@ -885,7 +918,7 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
     # Step 8: Select parking structure
     cb("Selecting parking structure...")
     page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
-    page.get_by_label("Parking Area").wait_for(timeout=config.PAGE_LOAD_TIMEOUT)
+    _wait_for_parking_area(page)
     dropdown = page.get_by_label("Parking Area")
     available_options = dropdown.evaluate(
         "el => Array.from(el.options).map(o => ({value: o.value, text: o.text, disabled: o.disabled}))"
@@ -1343,7 +1376,7 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
                 _screenshot(page, "success")
                 print(f"[JUSTIN CACHE] Fast path succeeded!", flush=True)
                 return result
-            except (BruinBillUnavailable, PurchaseAlreadyAttempted):
+            except (BruinBillUnavailable, PurchaseAlreadyAttempted, UCLARejectedCheckout):
                 raise
             except Exception as e:
                 print(f"[JUSTIN CACHE] Fast path failed: {e} — clearing cache, retrying with full login", flush=True)
@@ -1375,7 +1408,7 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
                 _screenshot(page, "success")
                 return result
 
-            except PurchaseAlreadyAttempted:
+            except (PurchaseAlreadyAttempted, UCLARejectedCheckout):
                 raise
 
             except BruinBillUnavailable as e:
