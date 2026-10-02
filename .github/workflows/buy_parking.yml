@@ -53,13 +53,8 @@ jobs:
           is_manual = '${{ github.event_name }}' == 'workflow_dispatch'
           is_class_day = today in config.PARKING_DATES
 
-          # Deduplicate: two cron triggers cover PST and PDT.
-          # Only proceed if we're within 90 min of the 6 AM target (handles DST edge cases).
-          target = now.replace(hour=6, minute=0, second=0, microsecond=0)
-          minutes_to_target = abs((target - now).total_seconds()) / 60
-          if not is_manual and minutes_to_target > 150:
-              print(f'Dedup: {minutes_to_target:.0f} min from 6 AM target. Skipping this cron trigger.')
-              is_class_day = False
+          # Late GitHub runs are allowed through: the server enforces the
+          # 5:55-11:00 AM PT window and once-per-day dedup.
 
           print(f'Today (PT): {today}, hour: {current_hour}, class day: {is_class_day}, manual: {is_manual}')
           if not is_class_day and not is_manual:
@@ -93,7 +88,7 @@ jobs:
           PUSH_SECRET: ${{ secrets.PUSH_SECRET }}
         run: |
           python - <<'PYEOF'
-          import os, sys, time, urllib.request, json, datetime
+          import os, sys, time, urllib.request, urllib.error, json, datetime
           from zoneinfo import ZoneInfo
 
           url    = os.environ['JUSTIN_URL'].rstrip('/')
@@ -115,38 +110,22 @@ jobs:
               print('ERROR: Server did not respond after 12 attempts.')
               sys.exit(1)
 
-          # Send push notification (message varies by day)
-          import config
-          today = datetime.datetime.now(ZoneInfo('America/Los_Angeles')).strftime('%Y-%m-%d')
-          is_elective = today in config.ELECTIVE_DATES
-          is_august_block = today in config.AUGUST_BLOCK_DATES
-          is_biweekly_only = today in config.BIWEEKLY_ONLY_DATES
-          special_day = config.SPECIAL_DAYS.get(today)
-          if special_day:
-              body = f'Tap to open Justin and buy parking for today. Good luck on {special_day}!'
-          elif is_august_block:
-              body = "Tap to open Justin and buy parking for today — if you're enrolled in August Block."
-          elif is_elective:
-              body = "Tap to open Justin and buy parking for today — if you're taking an elective."
-          elif is_biweekly_only:
-              body = "Tap to open Justin and buy parking for today — Bi-Weekly students only."
-          else:
-              body = 'Tap to open Justin and buy parking for today — Bi-Weekly + Monthly students.'
+          # Server decides class day / message / once-per-day dedup.
+          # cron-job.org normally sends at 6:00 AM; this run is the backup.
+          manual = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
           req = urllib.request.Request(
-              url + '/api/send-push',
-              data=json.dumps({
-                  'title': "It's a School Day!",
-                  'body':  body,
-              }).encode(),
-              headers={'Content-Type': 'application/json', 'X-Push-Secret': secret},
-              method='POST',
+              url + '/api/daily-push' + ('?force=1' if manual else ''),
+              headers={'X-Push-Secret': secret},
           )
-          with urllib.request.urlopen(req, timeout=15) as resp:
-              result = json.loads(resp.read())
+          try:
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  result = json.loads(resp.read())
+          except urllib.error.HTTPError as e:
+              result = json.loads(e.read() or b'{}')
           print(f'Push result: {result}')
 
-          if result.get('sent', 0) == 0:
-              print('ERROR: Push sent to 0 subscribers — subscription may have expired.')
+          if result.get('status') not in ('sent', 'already_sent', 'skipped'):
+              print('ERROR: Daily push failed — 0 subscribers reached.')
               sys.exit(1)
           PYEOF
 

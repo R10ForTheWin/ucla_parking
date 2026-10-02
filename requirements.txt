@@ -5,3 +5,4 @@ playwright-stealth==2.0.2
 requests==2.32.3
 cryptography==44.0.0
 pywebpush>=2.0.0
+tzdata

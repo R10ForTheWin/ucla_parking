@@ -390,31 +390,35 @@ _push_lock = threading.Lock()
 _GIST_ID    = os.environ.get('GIST_ID', '')
 _GIST_TOKEN = os.environ.get('GITHUB_TOKEN', '')
 _GIST_FILE  = 'push_subs.json'
+_PUSH_STATE_FILE = 'push_state.json'
 
 
-def _load_subs():
-    if not _GIST_ID or not _GIST_TOKEN:
-        return []
+def _gist_read(gist_id, filename, default):
+    if not gist_id or not _GIST_TOKEN:
+        return default
     try:
         import urllib.request as _ur
         req = _ur.Request(
-            f'https://api.github.com/gists/{_GIST_ID}',
+            f'https://api.github.com/gists/{gist_id}',
             headers={'Authorization': f'token {_GIST_TOKEN}', 'Accept': 'application/vnd.github+json'},
         )
         with _ur.urlopen(req, timeout=10) as r:
             data = _json_mod.loads(r.read())
-        return _json_mod.loads(data['files'][_GIST_FILE]['content'])
+        f = data['files'].get(filename)
+        if not f:
+            return default
+        return _json_mod.loads(f['content'])
     except Exception:
-        return []
+        return default
 
 
-def _save_subs(subs):
-    if not _GIST_ID or not _GIST_TOKEN:
+def _gist_write(gist_id, filename, content, indent=None):
+    if not gist_id or not _GIST_TOKEN:
         return
     import urllib.request as _ur
-    payload = _json_mod.dumps({'files': {_GIST_FILE: {'content': _json_mod.dumps(subs)}}}).encode()
+    payload = _json_mod.dumps({'files': {filename: {'content': _json_mod.dumps(content, indent=indent)}}}).encode()
     req = _ur.Request(
-        f'https://api.github.com/gists/{_GIST_ID}',
+        f'https://api.github.com/gists/{gist_id}',
         data=payload,
         headers={'Authorization': f'token {_GIST_TOKEN}', 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'},
         method='PATCH',
@@ -423,11 +427,29 @@ def _save_subs(subs):
         r.read()
 
 
+def _load_subs():
+    return _gist_read(_GIST_ID, _GIST_FILE, [])
+
+
+def _save_subs(subs):
+    _gist_write(_GIST_ID, _GIST_FILE, subs)
+
+
+def _load_push_state():
+    return _gist_read(_GIST_ID, _PUSH_STATE_FILE, {})
+
+
+def _save_push_state(state):
+    _gist_write(_GIST_ID, _PUSH_STATE_FILE, state)
+
+
 def _send_push(title, body):
+    """Send to all subscribers, prune expired ones, return count actually sent."""
+    sent = 0
     try:
         subs = _load_subs()
         if not subs:
-            return
+            return sent
         from pywebpush import webpush, WebPushException
         vapid_private = os.environ.get('VAPID_PRIVATE_KEY', '').strip()
         vapid_claims  = {'sub': 'mailto:djnurre@gmail.com'}
@@ -440,6 +462,7 @@ def _send_push(title, body):
                     vapid_private_key=vapid_private,
                     vapid_claims=vapid_claims,
                 )
+                sent += 1
             except WebPushException as ex:
                 if ex.response and ex.response.status_code in (404, 410):
                     expired.append(sub['endpoint'])
@@ -450,7 +473,8 @@ def _send_push(title, body):
                 clean = [s for s in _load_subs() if s.get('endpoint') not in expired]
                 _save_subs(clean)
     except Exception as ex:
-        print(f"[JUSTIN PUSH] Admin alert failed: {ex}", flush=True)
+        print(f"[JUSTIN PUSH] _send_push failed: {ex}", flush=True)
+    return sent
 
 
 @app.route('/api/vapid-public-key')
@@ -552,6 +576,58 @@ def api_send_push():
     return jsonify({'sent': sent, 'expired_cleaned': len(expired)})
 
 
+def _class_day_push_body(today):
+    special_day = config.SPECIAL_DAYS.get(today)
+    if special_day:
+        return f'Tap to open Justin and buy parking for today. Good luck on {special_day}!'
+    if today in config.AUGUST_BLOCK_DATES:
+        return "Tap to open Justin and buy parking for today — if you're enrolled in August Block."
+    if today in config.ELECTIVE_DATES:
+        return "Tap to open Justin and buy parking for today — if you're taking an elective."
+    if today in config.BIWEEKLY_ONLY_DATES:
+        return "Tap to open Justin and buy parking for today — Bi-Weekly students only."
+    return 'Tap to open Justin and buy parking for today — Bi-Weekly + Monthly students.'
+
+
+_daily_push_lock = threading.Lock()
+
+
+@app.route('/api/daily-push', methods=['GET', 'POST'])
+def api_daily_push():
+    """Class-day morning alert. Called at 6 AM PT by cron-job.org (primary)
+    and the GitHub Actions workflows (backup). Safe to call repeatedly: it
+    only sends on class days, between 5:55 and 11:00 AM PT, once per day."""
+    token = request.headers.get('X-Push-Secret', '') or request.args.get('key', '')
+    if not token or token != os.environ.get('PUSH_SECRET', ''):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    from zoneinfo import ZoneInfo
+    import datetime as _dt
+    now   = _dt.datetime.now(ZoneInfo('America/Los_Angeles'))
+    today = now.strftime('%Y-%m-%d')
+    force = request.args.get('force') == '1'
+
+    if not force:
+        if today not in config.PARKING_DATES:
+            return jsonify({'status': 'skipped', 'reason': 'not a class day', 'today': today})
+        minutes = now.hour * 60 + now.minute
+        if not (5 * 60 + 55 <= minutes < 11 * 60):
+            return jsonify({'status': 'skipped', 'reason': 'outside 5:55-11:00 AM PT window', 'now': now.strftime('%H:%M')})
+
+    with _daily_push_lock:
+        state = _load_push_state()
+        if not force and state.get('last_daily_push') == today:
+            return jsonify({'status': 'already_sent', 'today': today, 'sent_at': state.get('last_daily_push_at')})
+        sent = _send_push("It's a School Day!", _class_day_push_body(today))
+        if sent:
+            state['last_daily_push']    = today
+            state['last_daily_push_at'] = now.strftime('%H:%M:%S')
+            _save_push_state(state)
+
+    print(f"[JUSTIN PUSH] daily-push {today} {now.strftime('%H:%M:%S')} PT: sent={sent}", flush=True)
+    return jsonify({'status': 'sent' if sent else 'failed', 'sent': sent, 'today': today}), (200 if sent else 500)
+
+
 # ── Feedback ──────────────────────────────────────────────────────────────
 
 _FEEDBACK_GIST_ID = os.environ.get('FEEDBACK_GIST_ID', '')
@@ -559,34 +635,11 @@ _FEEDBACK_FILE    = 'feedback.json'
 
 
 def _load_feedback():
-    if not _FEEDBACK_GIST_ID or not _GIST_TOKEN:
-        return []
-    try:
-        import urllib.request as _ur
-        req = _ur.Request(
-            f'https://api.github.com/gists/{_FEEDBACK_GIST_ID}',
-            headers={'Authorization': f'token {_GIST_TOKEN}', 'Accept': 'application/vnd.github+json'},
-        )
-        with _ur.urlopen(req, timeout=10) as r:
-            data = _json_mod.loads(r.read())
-        return _json_mod.loads(data['files'][_FEEDBACK_FILE]['content'])
-    except Exception:
-        return []
+    return _gist_read(_FEEDBACK_GIST_ID, _FEEDBACK_FILE, [])
 
 
 def _save_feedback(entries):
-    if not _FEEDBACK_GIST_ID or not _GIST_TOKEN:
-        return
-    import urllib.request as _ur
-    payload = _json_mod.dumps({'files': {_FEEDBACK_FILE: {'content': _json_mod.dumps(entries, indent=2)}}}).encode()
-    req = _ur.Request(
-        f'https://api.github.com/gists/{_FEEDBACK_GIST_ID}',
-        data=payload,
-        headers={'Authorization': f'token {_GIST_TOKEN}', 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'},
-        method='PATCH',
-    )
-    with _ur.urlopen(req, timeout=10) as r:
-        r.read()
+    _gist_write(_FEEDBACK_GIST_ID, _FEEDBACK_FILE, entries, indent=2)
 
 
 @app.route('/api/feedback', methods=['POST'])
