@@ -607,6 +607,19 @@ def api_subscribe():
     return jsonify({'ok': True})
 
 
+@app.route('/api/unsubscribe', methods=['POST'])
+def api_unsubscribe():
+    endpoint = (request.json or {}).get('endpoint')
+    if not endpoint:
+        return jsonify({'error': 'endpoint required'}), 400
+    with _push_lock:
+        subs = _load_subs()
+        keep = [s for s in subs if s.get('endpoint') != endpoint]
+        if len(keep) != len(subs):
+            _save_subs(keep)
+    return jsonify({'ok': True})
+
+
 @app.route('/api/send-push', methods=['POST'])
 def api_send_push():
     token = request.headers.get('X-Push-Secret', '')
