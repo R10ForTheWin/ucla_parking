@@ -603,26 +603,49 @@ def api_daily_push():
 
     from zoneinfo import ZoneInfo
     import datetime as _dt
-    now   = _dt.datetime.now(ZoneInfo('America/Los_Angeles'))
+    pacific = ZoneInfo('America/Los_Angeles')
+    now     = _dt.datetime.now(pacific)
+    force   = request.args.get('force') == '1'
+    # ?dry_run=1[&at=YYYY-MM-DDTHH:MM] runs every check (optionally as of a
+    # simulated PT time) and verifies Gist read/write, but sends nothing.
+    dry_run = request.args.get('dry_run') == '1'
+    if dry_run and request.args.get('at'):
+        now = _dt.datetime.fromisoformat(request.args['at']).replace(tzinfo=pacific)
     today = now.strftime('%Y-%m-%d')
-    force = request.args.get('force') == '1'
 
     if not force:
         if today not in config.PARKING_DATES:
-            return jsonify({'status': 'skipped', 'reason': 'not a class day', 'today': today})
+            return jsonify({'status': 'skipped', 'reason': 'not a class day', 'today': today, 'dry_run': dry_run})
         minutes = now.hour * 60 + now.minute
         if not (5 * 60 + 55 <= minutes < 11 * 60):
-            return jsonify({'status': 'skipped', 'reason': 'outside 5:55-11:00 AM PT window', 'now': now.strftime('%H:%M')})
+            return jsonify({'status': 'skipped', 'reason': 'outside 5:55-11:00 AM PT window', 'now': now.strftime('%H:%M'), 'dry_run': dry_run})
 
     with _daily_push_lock:
         state = _load_push_state()
         if not force and state.get('last_daily_push') == today:
-            return jsonify({'status': 'already_sent', 'today': today, 'sent_at': state.get('last_daily_push_at')})
-        sent = _send_push("It's a School Day!", _class_day_push_body(today))
+            return jsonify({'status': 'already_sent', 'today': today, 'sent_at': state.get('last_daily_push_at'), 'dry_run': dry_run})
+        body = _class_day_push_body(today)
+
+        if dry_run:
+            state['last_dry_run_at'] = _dt.datetime.now(pacific).isoformat(timespec='seconds')
+            try:
+                _save_push_state(state)
+                gist_write = 'ok'
+            except Exception as ex:
+                gist_write = f'failed: {ex}'
+            return jsonify({'status': 'would_send', 'today': today, 'title': "It's a School Day!", 'body': body,
+                            'subscribers': len(_load_subs()), 'gist_write': gist_write, 'dry_run': True})
+
+        sent = _send_push("It's a School Day!", body)
         if sent:
             state['last_daily_push']    = today
             state['last_daily_push_at'] = now.strftime('%H:%M:%S')
-            _save_push_state(state)
+            try:
+                _save_push_state(state)
+            except Exception as ex:
+                # The push already went out — don't report failure (that would
+                # make the GitHub backup send a duplicate).
+                print(f"[JUSTIN PUSH] daily-push: failed to record send: {ex}", flush=True)
 
     print(f"[JUSTIN PUSH] daily-push {today} {now.strftime('%H:%M:%S')} PT: sent={sent}", flush=True)
     return jsonify({'status': 'sent' if sent else 'failed', 'sent': sent, 'today': today}), (200 if sent else 500)
