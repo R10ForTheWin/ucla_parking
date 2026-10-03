@@ -6,7 +6,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Justin">
-  <meta name="theme-color" content="#2774AE">
+  <meta name="theme-color" content="#0B1730">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
   <link rel="manifest" href="/static/manifest.json">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
   <title>Justin EMBAlake</title>
@@ -455,6 +458,157 @@
       flex-shrink: 0;
       margin-top: 1px;
     }
+
+    /* ═══════════════ Luxury monogram theme (2026-10) ═══════════════
+       Navy leather + antique gold, ivory cards. Layered over the base
+       styles above; inline-styled bits are overridden by id below. */
+    :root {
+      --navy:       #0B1730;
+      --navy-2:     #16284F;
+      --gold:       #C9A24D;
+      --gold-light: #EAD08A;
+      --gold-dark:  #9A7630;
+      --ivory:      #FBF7EE;
+      --blue:       #16284F;   /* base "blue" accents become navy */
+      --blue-dark:  #0B1730;
+      --blue-mid:   #1E3566;
+      --bg:         #0B1730;
+      --card:       #FBF7EE;
+      --text:       #1A1A24;
+      --muted:      #6F6A5C;
+      --success:    #2E7D4F;
+      --error:      #C0392B;
+      --serif:      'Cormorant Garamond', 'Times New Roman', serif;
+      --foil:       linear-gradient(135deg, #F6E3A6 0%, #D9B560 38%, #B88E3C 62%, #E4C473 100%);
+    }
+    body { background: var(--navy); }
+    body::before {
+      content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+      background:
+        linear-gradient(rgba(8,15,32,.45), rgba(8,15,32,.45)),
+        url('/static/texture-portrait.jpg') center / cover no-repeat;   /* fixed layer: one image, never a seam */
+    }
+    @media (min-aspect-ratio: 1/1) {   /* laptops / landscape: wide version */
+      body::before {
+        background:
+          linear-gradient(rgba(8,15,32,.45), rgba(8,15,32,.45)),
+          url('/static/texture-landscape.jpg') center / cover no-repeat;
+      }
+    }
+
+    /* Header sits on the leather */
+        .header { background: none; }   /* no shading: leather runs straight behind the header */
+    .header h1 {
+      font-family: var(--serif); font-size: 36px; font-weight: 700; letter-spacing: .5px;
+      background: var(--foil); -webkit-background-clip: text; background-clip: text; color: transparent;
+      filter: drop-shadow(0 2px 2px rgba(0,0,0,.7)) drop-shadow(0 0 8px rgba(8,15,32,.95)) drop-shadow(0 0 16px rgba(8,15,32,.85));
+    }
+    .header p {
+      text-shadow: 0 0 4px rgba(8,15,32,1), 0 0 10px rgba(8,15,32,.95), 0 0 18px rgba(8,15,32,.9), 0 1px 2px rgba(0,0,0,.9);
+      opacity: 1; color: var(--gold-light); font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 3px; margin-top: 6px;
+    }
+    .header-sm h1 { font-size: 30px; }
+    .header img {
+      border: 2px solid var(--gold) !important;
+      box-shadow: 0 0 0 5px rgba(11,23,48,.85), 0 0 0 6px rgba(201,162,77,.55), 0 14px 34px rgba(0,0,0,.6);
+    }
+
+    /* Ivory cards with a gold hairline */
+    .card, .profile-badge, .next-day-card, .notif-toggle-row, #purchased-card {
+      background: var(--ivory) !important;
+      border: 1px solid rgba(201,162,77,.6) !important;
+      box-shadow: 0 10px 28px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.9) !important;
+    }
+    .profile-name, .next-day-label, .ntl-title { font-weight: 700; }
+    .avatar { border: 1.5px solid var(--gold); }
+    .edit-link { color: var(--gold-dark); }
+
+    .cal-icon { box-shadow: 0 3px 10px rgba(0,0,0,.3); border: 1px solid rgba(201,162,77,.7); }
+    .cal-icon-month { background: var(--navy); color: var(--gold-light); }
+    .cal-icon-day   { color: var(--navy); background: #fff; font-family: var(--serif); font-weight: 700; }
+    .next-day-countdown { color: var(--navy); font-family: var(--serif); font-size: 32px; }
+    #next-day-class { color: var(--gold-dark) !important; }
+
+    /* Buttons */
+    .btn-gold {
+      background: var(--foil); color: var(--navy);
+      border: 1px solid #F3DD9A;
+      box-shadow: 0 10px 26px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.65), inset 0 -2px 0 rgba(120,85,25,.35);
+      text-shadow: 0 1px 0 rgba(255,255,255,.35);
+    }
+    .btn-primary {
+      background: linear-gradient(180deg, var(--navy-2), var(--navy));
+      color: var(--gold-light); border: 1px solid var(--gold);
+      box-shadow: 0 8px 22px rgba(0,0,0,.4);
+    }
+    .btn-outline { color: var(--gold-light); border: 1.5px solid rgba(201,162,77,.8); background: rgba(11,23,48,.55); }
+    .card .btn-outline { color: var(--navy); background: transparent; }
+    .btn-success { background: var(--success); }
+    input:focus { border-color: var(--gold); }
+    .toggle-btn.selected, .plate-btn.selected { border-color: var(--gold); background: #F5ECD4; color: var(--navy); }
+    .price-tag { color: var(--navy); font-family: var(--serif); font-size: 28px; }
+    .divider { background: rgba(201,162,77,.3); }
+
+
+    /* Parking Secured tile + leave-by (inline styles overridden) */
+    #purchased-card [style*="#1a6b35"] { color: var(--navy) !important; }
+    #purchased-card [style*="#4a7a58"], #purchased-card [style*="#6c8a75"] { color: var(--muted) !important; }
+    #purchased-card > div:first-child > div > div:first-child { font-family: var(--serif); font-size: 22px !important; }
+    #leave-by { border-top-color: rgba(201,162,77,.4) !important; }
+    #leave-by-add { border-color: var(--gold) !important; color: var(--navy) !important; background: #fff !important; }
+    #leave-by-input { border-color: rgba(201,162,77,.6) !important; }
+    #leave-by-form button[type="submit"] { background: var(--navy) !important; color: var(--gold-light) !important; }
+    #leave-by-headline { font-family: var(--serif); font-size: 21px !important; }
+
+    /* Text that sits directly on the leather */
+    .center-screen {
+      color: var(--ivory);
+      background: radial-gradient(ellipse 85% 60% at 50% 50%, rgba(8,15,32,.92) 0%, rgba(8,15,32,.75) 45%, rgba(8,15,32,0) 100%);
+    }
+    .result-title, .duo-title {
+      font-family: var(--serif); font-size: 32px; color: var(--gold-light);
+      text-shadow: 0 2px 6px rgba(0,0,0,.6);
+    }
+    .status-text, .result-msg, .duo-sub, .note, .grad-countdown-label, .grad-countdown-sub {
+      color: #E9E1CC; text-shadow: 0 1px 3px rgba(0,0,0,.6);
+    }
+    .error-inline { color: #FF9A8A; }
+    .wave-loader span { background: var(--foil); box-shadow: 0 0 8px rgba(201,162,77,.6); }
+    .flip-digit { background: var(--navy); border: 1px solid rgba(201,162,77,.6); }
+    .flip-digit-inner { color: var(--gold-light); }
+    .duo-input { border-color: var(--gold); background: var(--ivory); }
+    #success-gif-wrap { border: 1px solid var(--gold); box-shadow: 0 12px 30px rgba(0,0,0,.5); }
+
+    #screen-setup .content > div:last-child { border-top-color: rgba(201,162,77,.35) !important; }
+    #screen-setup .content > div:last-child p,
+    #screen-home .content > div:last-child span,
+    #notif-err { color: #E9E1CC !important; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+    #screen-setup .card span[style*="var(--blue)"] { color: var(--navy) !important; }
+    #screen-setup .section-gap + .card { margin-top: 14px; }
+    #screen-faq .card[style*="#EBF5FF"] { background: #F5ECD4 !important; border-color: var(--gold) !important; }
+
+    /* Sheets / modals */
+    .homescreen-sheet, #feedback-modal > div { background: var(--ivory) !important; border-top: 2px solid var(--gold); }
+    .homescreen-title { font-family: var(--serif); font-size: 26px; }
+    .homescreen-steps { background: #F2EAD6; }
+    .homescreen-step-num { background: var(--navy); color: var(--gold-light); }
+    #feedback-submit-btn { background: var(--navy) !important; color: var(--gold-light) !important; }
+    .seal {
+      width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--foil); color: var(--navy); font-size: 24px; font-weight: 800;
+      border: 1px solid #F3DD9A; box-shadow: 0 3px 8px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.6);
+    }
+    #leave-by-waze { background: linear-gradient(180deg, var(--navy-2), var(--navy)) !important; color: var(--gold-light) !important; border: 1px solid var(--gold); }
+    .p-badge {
+      width: 46px; height: 46px; flex-shrink: 0; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(180deg, var(--navy-2), var(--navy));
+      border: 1.5px solid #F3DD9A; color: var(--gold-light);
+      font-family: var(--serif); font-size: 30px; font-weight: 700; line-height: 1;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 2px 6px rgba(0,0,0,.35);
+    }
   </style>
 </head>
 <body>
@@ -654,7 +808,7 @@
 <div class="screen" id="screen-home">
   <div class="header">
     <img src="/static/justin.jpg" alt="Justin EMBAlake"
-         style="width:110px;height:110px;object-fit:cover;object-position:50% 55%;border-radius:50%;margin-top:20px;margin-bottom:12px;border:3px solid rgba(255,209,0,0.6);">
+         style="width:160px;height:160px;object-fit:cover;object-position:50% 55%;border-radius:50%;margin-top:12px;margin-bottom:16px;border:3px solid rgba(255,209,0,0.6);">
     <h1>Justin EMBAlake</h1>
     <p>UCLA EMBA Parking Agent</p>
   </div>
@@ -686,7 +840,7 @@
     </div>
 
     <button class="btn btn-gold btn-lg" id="buy-btn" onclick="startBuy()" style="display:flex;flex-direction:row;align-items:center;gap:16px;padding:16px 18px;">
-      <span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span>
+      <span class="p-badge" aria-hidden="true">P</span>
       <div style="display:flex;flex-direction:column;gap:2px;text-align:left;">
         <span style="font-size:17px;font-weight:800;">Buy Parking Today</span>
         <span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $7.28 · Payment on file</span>
@@ -695,7 +849,7 @@
 
     <div id="purchased-card" style="display:none;background:#f0faf2;border:1.5px solid #2DC653;border-radius:16px;padding:18px 20px;">
       <div style="display:flex;align-items:center;gap:14px;">
-        <span style="font-size:36px;line-height:1;flex-shrink:0;">✅</span>
+        <span class="seal" aria-hidden="true">✓</span>
         <div style="flex:1;min-width:0;">
           <div style="font-size:17px;font-weight:800;color:#1a6b35;">Parking Secured</div>
           <div id="purchased-sub" style="font-size:13px;color:#4a7a58;margin-top:2px;"></div>
@@ -1642,7 +1796,7 @@ function handleSuccess(result) {
     showGradCountdown();
   } else {
     const detail = (result && result.detail) ? result.detail : '';
-    document.getElementById('success-title').textContent = "You're Parked! 🅿️";
+    document.getElementById('success-title').textContent = "You're Parked!";
     const confirmNum = detail && detail.startsWith('Confirmation') ? ' ' + detail + '.' : '';
     document.getElementById('success-msg').textContent =
       'Parking purchased successfully. Check your inbox for a confirmation email.' + confirmNum;
@@ -1735,9 +1889,7 @@ function _setNotifToggle(on, subText) {
   if (!row) return;
   row.setAttribute('aria-checked', on ? 'true' : 'false');
   const sub = document.getElementById('notif-sub');
-  if (sub) sub.textContent = subText || (on
-    ? "On — you'll get a reminder at 6 AM on class days"
-    : 'A reminder at 6 AM on class days');
+  if (sub) sub.textContent = subText || 'A reminder at 6 AM on class days';
 }
 
 async function _hasSubscription() {
