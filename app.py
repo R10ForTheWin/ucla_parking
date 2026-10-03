@@ -758,6 +758,7 @@ ROUTES_DAILY_LIMIT   = 140
 ROUTES_MONTHLY_LIMIT = 4500
 _routes_quota = None   # {'day','day_count','month','month_count'}; loaded lazily
 _leave_by_cache = {}   # key → (expires_at, payload)
+_last_route_end = {}   # where Google put the destination (admin test output)
 _leave_by_hits  = {}   # ip → [timestamps]
 _leave_by_lock  = threading.Lock()
 
@@ -811,13 +812,17 @@ def _drive_seconds(origin, dest, depart_utc):
         'https://routes.googleapis.com/directions/v2:computeRoutes',
         data=_json_mod.dumps(body).encode(),
         headers={'Content-Type': 'application/json', 'X-Goog-Api-Key': key,
-                 'X-Goog-FieldMask': 'routes.duration'},
+                 'X-Goog-FieldMask': 'routes.duration,routes.legs.endLocation'},
         method='POST',
     )
     with _ur.urlopen(req, timeout=10) as r:
         routes = _json_mod.loads(r.read()).get('routes') or []
     if not routes:
         raise ValueError('no route')
+    try:
+        _last_route_end.update(routes[0]['legs'][-1]['endLocation']['latLng'])
+    except (KeyError, IndexError):
+        pass
     return int(routes[0]['duration'].rstrip('s'))
 
 
@@ -891,6 +896,16 @@ def api_leave_by():
     from zoneinfo import ZoneInfo
     import datetime as _dt
     now_pt = _dt.datetime.now(ZoneInfo('America/Los_Angeles'))
+    # Admin test: X-Push-Secret + {"at": "YYYY-MM-DDTHH:MM"} simulates that PT time
+    # (uncached, still counted against the free-tier caps).
+    secret = os.environ.get('PUSH_SECRET', '')
+    if data.get('at') and secret and request.headers.get('X-Push-Secret') == secret:
+        sim = _dt.datetime.fromisoformat(data['at']).replace(tzinfo=ZoneInfo('America/Los_Angeles'))
+        try:
+            payload = _compute_leave_by(address, structure, sim)
+        except Exception as ex:
+            return jsonify({'status': 'error', 'error': f'{type(ex).__name__}: {ex}'}), 502
+        return jsonify({**payload, 'destination_latlng': dict(_last_route_end)})
     ip = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
     import hashlib
     key = (hashlib.sha256(address.lower().encode()).hexdigest()[:16], structure, now_pt.strftime('%Y-%m-%d'))
