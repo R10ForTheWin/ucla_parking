@@ -1540,7 +1540,7 @@ function startLeaveBy(structure) {
   clearInterval(leaveByTimer);
   leaveByTimer = setInterval(() => {
     if (document.visibilityState === 'visible' && getLeaveByAddress()) refreshLeaveBy();
-  }, 5 * 60 * 1000);
+  }, 15 * 60 * 1000);
 }
 
 // ── Graduation flip-clock countdown ────────────────────────────────────────

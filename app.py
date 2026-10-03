@@ -751,14 +751,48 @@ def api_daily_push():
 # uses it for the lookup only — never stored or logged (cache keys are hashes
 # held in memory for 10 minutes).
 
+# Hard caps on Google requests so usage stays inside the Routes "Compute Routes
+# Pro" free tier (5,000/month as of 2026-10). Google-side daily quota is a second
+# layer. Counts persist in Gist usage.json ("routes_quota") across restarts.
+ROUTES_DAILY_LIMIT   = 140
+ROUTES_MONTHLY_LIMIT = 4500
+_routes_quota = None   # {'day','day_count','month','month_count'}; loaded lazily
 _leave_by_cache = {}   # key → (expires_at, payload)
 _leave_by_hits  = {}   # ip → [timestamps]
 _leave_by_lock  = threading.Lock()
 
 
+class RoutesQuotaExceeded(Exception):
+    pass
+
+
+def _routes_quota_take():
+    """Reserve one Google request against the daily/monthly caps, or raise."""
+    global _routes_quota
+    today = _usage_today()
+    with _leave_by_lock:
+        if _routes_quota is None:
+            _routes_quota = dict(_gist_read(_GIST_ID, _USAGE_FILE, {}).get('routes_quota') or {})
+        q = _routes_quota
+        if q.get('month') != today[:7]:
+            q.update(month=today[:7], month_count=0)
+        if q.get('day') != today:
+            q.update(day=today, day_count=0)
+        if q['day_count'] >= ROUTES_DAILY_LIMIT or q['month_count'] >= ROUTES_MONTHLY_LIMIT:
+            raise RoutesQuotaExceeded(f"{q['day_count']} today / {q['month_count']} this month")
+        q['day_count'] += 1
+        q['month_count'] += 1
+        if q['month_count'] == int(ROUTES_MONTHLY_LIMIT * 0.8):
+            _alert("Justin: leave-by at 80% of free Google quota",
+                   f"{q['month_count']}/{ROUTES_MONTHLY_LIMIT} Routes requests used this month. "
+                   "It stops automatically at the limit, so no charges.", priority="default", tags="chart_with_upwards_trend")
+    _usage_inc('routes_requests')
+
+
 def _drive_seconds(origin, dest, depart_utc):
     import urllib.request as _ur
     import datetime as _dt
+    _routes_quota_take()
     key = os.environ.get('GOOGLE_MAPS_API_KEY', '').strip()
     if 'lat' in dest:
         destination = {'location': {'latLng': {'latitude': dest['lat'], 'longitude': dest['lng']}}}
@@ -870,11 +904,14 @@ def api_leave_by():
         _leave_by_hits[ip] = recent + [time.time()]
     try:
         payload = _compute_leave_by(address, structure, now_pt)
+    except RoutesQuotaExceeded as ex:
+        print(f"[JUSTIN LEAVE-BY] free-tier cap reached ({ex}) — hiding leave-by", flush=True)
+        return jsonify({'status': 'unavailable'})
     except Exception as ex:
         print(f"[JUSTIN LEAVE-BY] lookup failed: {type(ex).__name__}: {ex}", flush=True)
         return jsonify({'status': 'error'}), 502
     with _leave_by_lock:
-        _leave_by_cache[key] = (time.time() + 600, payload)
+        _leave_by_cache[key] = (time.time() + 900, payload)
     return jsonify(payload)
 
 
@@ -927,7 +964,7 @@ def _usage_flush():
         pending    = {d: dict(c) for d, c in _usage_pending.items()}
         visitors   = {d: len(s) for d, s in _usage_visitors.items()}
         purchasers = set(_usage_purchasers)
-    if not pending and not purchasers:
+    if not pending and not purchasers and not _routes_quota:
         return
     usage = _gist_read(_GIST_ID, _USAGE_FILE, {})
     days = usage.setdefault('days', {})
@@ -939,6 +976,15 @@ def _usage_flush():
         # Salt resets on restart, so this can undercount a day that spans a restart.
         days.setdefault(d, {})['visitors'] = max(days[d].get('visitors', 0), n)
     usage['purchasers'] = sorted(set(usage.get('purchasers', [])) | purchasers)
+    with _leave_by_lock:
+        q = dict(_routes_quota) if _routes_quota else None
+    if q:
+        old = usage.get('routes_quota') or {}
+        if old.get('month') == q.get('month'):   # never let a restart lower the count
+            q['month_count'] = max(q['month_count'], old.get('month_count', 0))
+            if old.get('day') == q.get('day'):
+                q['day_count'] = max(q['day_count'], old.get('day_count', 0))
+        usage['routes_quota'] = q
     _gist_write(_GIST_ID, _USAGE_FILE, usage, indent=1)
     with _usage_lock:
         for d, counters in pending.items():
