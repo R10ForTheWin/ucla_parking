@@ -826,6 +826,14 @@ def _drive_seconds(origin, dest, depart_utc):
     return int(routes[0]['duration'].rstrip('s'))
 
 
+def _leave_now_payload(origin, dest, now_pt, arrive_by, base, drive_seconds):
+    import datetime as _dt
+    secs = drive_seconds(origin, dest, now_pt.astimezone(_dt.timezone.utc))
+    eta = now_pt + _dt.timedelta(seconds=secs)
+    return {**base, 'status': 'leave_now', 'drive_min': round(secs / 60), 'eta': eta.strftime('%-I:%M %p'),
+            'late_min': max(0, round((eta - arrive_by).total_seconds() / 60))}
+
+
 def _compute_leave_by(origin, structure, now_pt, drive_seconds=_drive_seconds):
     import datetime as _dt
     fmt = lambda t: t.strftime('%-I:%M %p')
@@ -845,18 +853,18 @@ def _compute_leave_by(origin, structure, now_pt, drive_seconds=_drive_seconds):
     # Saturday's arrive-by is breakfast (8:00–9:00 on the dot calendar legend).
     goal = 'breakfast' if class_at.weekday() == 5 else 'be on campus'
     base = {'arrive_by': fmt(arrive_by), 'class_start': fmt(class_at), 'goal': goal,
-            'destination': dest['name'], 'waze_url': waze}
+            'class_start_iso': class_at.isoformat(), 'destination': dest['name'], 'waze_url': waze}
+    if now_pt >= class_at:
+        return {'status': 'past'}   # tile hides once class starts
+    if origin is None:
+        return {**base, 'status': 'need_address'}
     if now_pt >= arrive_by:
-        return {**base, 'status': 'past'}
+        return _leave_now_payload(origin, dest, now_pt, arrive_by, base, drive_seconds)
 
     utc = _dt.timezone.utc
     drive = lambda t: drive_seconds(origin, dest, t.astimezone(utc))
 
-    def leave_now():
-        secs = drive(now_pt)
-        eta = now_pt + _dt.timedelta(seconds=secs)
-        return {**base, 'status': 'leave_now', 'drive_min': round(secs / 60), 'eta': fmt(eta),
-                'late_min': max(0, round((eta - arrive_by).total_seconds() / 60))}
+    leave_now = lambda: _leave_now_payload(origin, dest, now_pt, arrive_by, base, drive_seconds)
 
     # Fixed-point guess: depart = arrive_by − drive(depart) …
     depart = max(now_pt, arrive_by - _dt.timedelta(minutes=45))
@@ -889,8 +897,8 @@ def api_leave_by():
         return jsonify({'status': 'unavailable'})
     data = request.json or {}
     address = ' '.join(str(data.get('address') or '').split())
-    if not 5 <= len(address) <= 200:
-        return jsonify({'error': 'address required'}), 400
+    if len(address) > 200 or 0 < len(address) < 5:
+        return jsonify({'error': 'invalid address'}), 400
     structure = str(data.get('structure') or config.STRUCTURE_4)
 
     from zoneinfo import ZoneInfo
@@ -907,6 +915,8 @@ def api_leave_by():
             return jsonify({'status': 'error', 'error': f'{type(ex).__name__}: {ex}'}), 502
         return jsonify({**payload, 'destination_latlng': dict(_last_route_end)})
     ip = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+    if not address:   # schedule check only — no Google request
+        return jsonify(_compute_leave_by(None, structure, now_pt))
     import hashlib
     key = (hashlib.sha256(address.lower().encode()).hexdigest()[:16], structure, now_pt.strftime('%Y-%m-%d'))
     with _leave_by_lock:
