@@ -1527,8 +1527,15 @@ async function refreshLeaveBy() {
   } else if (r.status === 'leave_now') {
     leaveByMessage(r.late_min > 0 ? `Leave now — traffic puts you there around ${r.eta}` : `Leave now to ${goal}`,
       `About ${r.drive_min} min to ${r.destination} in current traffic`, r.waze_url);
-  } else if (r.status === 'past' || r.status === 'no_class' || r.status === 'unavailable') {
-    box.style.display = 'none';   // nothing useful to show
+  } else if (r.status === 'past') {
+    leaveByMessage(`Today's ${r.arrive_by} arrival time has passed`,
+      `Starting address saved — your leave-by time will show here on your next class day.`, null);
+  } else if (r.status === 'no_class') {
+    leaveByMessage('No class today',
+      'Starting address saved — your leave-by time will show here on your next class day.', null);
+  } else if (r.status === 'unavailable') {
+    leaveByMessage('Traffic estimates are paused for now',
+      'Your starting address is saved. Check back later.', null);
   } else {
     leaveByMessage("Couldn't find a route from that address", 'Check the address and try again.', null);
   }
