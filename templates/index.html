@@ -7,9 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Justin">
   <meta name="theme-color" content="#0B1730">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="preload" href="/static/fonts/cormorant-garamond.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="manifest" href="/static/manifest.json">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
   <title>Justin EMBAlake</title>
@@ -459,6 +457,12 @@
       margin-top: 1px;
     }
 
+    /* Self-hosted (the app's CSP blocks Google Fonts). Variable font, latin. */
+    @font-face {
+      font-family: 'Cormorant Garamond'; font-style: normal; font-weight: 600 700; font-display: swap;
+      src: url('/static/fonts/cormorant-garamond.woff2') format('woff2');
+    }
+
     /* ═══════════════ Luxury monogram theme (2026-10) ═══════════════
        Navy leather + antique gold, ivory cards. Layered over the base
        styles above; inline-styled bits are overridden by id below. */
@@ -644,8 +648,8 @@
 <!-- ═══════════════════════════════════════════ SETUP -->
 <div class="screen" id="screen-setup">
   <div class="header">
-    <img src="/static/justin.jpg" alt="Justin EMBAlake"
-         style="width:140px;height:140px;object-fit:cover;object-position:50% 55%;border-radius:50%;margin-top:20px;margin-bottom:14px;border:3px solid rgba(255,209,0,0.6);">
+    <img src="/static/justin-round.jpg" alt="Justin EMBAlake"
+         style="width:140px;height:140px;object-fit:cover;object-position:50% 50%;border-radius:50%;margin-top:20px;margin-bottom:14px;border:3px solid rgba(255,209,0,0.6);">
     <h1>Justin EMBAlake</h1>
     <p>Your UCLA EMBA Parking Agent</p>
   </div>
@@ -807,8 +811,8 @@
 <!-- ═══════════════════════════════════════════ HOME -->
 <div class="screen" id="screen-home">
   <div class="header">
-    <img src="/static/justin.jpg" alt="Justin EMBAlake"
-         style="width:160px;height:160px;object-fit:cover;object-position:50% 55%;border-radius:50%;margin-top:12px;margin-bottom:16px;border:3px solid rgba(255,209,0,0.6);">
+    <img src="/static/justin-round.jpg" alt="Justin EMBAlake"
+         style="width:160px;height:160px;object-fit:cover;object-position:50% 50%;border-radius:50%;margin-top:12px;margin-bottom:16px;border:3px solid rgba(255,209,0,0.6);">
     <h1>Justin EMBAlake</h1>
     <p>UCLA EMBA Parking Agent</p>
   </div>
@@ -1607,7 +1611,7 @@ async function selectVehicle(index) {
 
 // ── Purchased card ─────────────────────────────────────────────────────────
 function showPurchasedCard(rec) {
-  const permitMatch = rec.detail && rec.detail.match(/#?(\w{10,})/);
+  const permitMatch = rec.detail && rec.detail.match(/#?\b([A-Z0-9]*\d[A-Z0-9]{7,})\b/i);
   const permitStr = permitMatch ? ` · #${permitMatch[1]}` : '';
   const timeStr = rec.time ? `Purchased at ${rec.time}` : 'Purchased today';
   document.getElementById('purchased-sub').textContent = timeStr + permitStr;
