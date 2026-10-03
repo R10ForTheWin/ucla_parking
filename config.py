@@ -24,9 +24,10 @@ STRUCTURE_32 = "2129"    # Str 32 - Student Daily Yellow (confirmed 2026-04-02)
 SCREENSHOT_DIR = "screenshots"
 
 # Leave-by: where each structure is (for Google Routes + Waze) and when class starts.
-# Destinations are place names Google/Waze resolve; P7 coords from OpenStreetMap.
+# Coordinates verified against Google Routes + OpenStreetMap on 2026-10-02.
 STRUCTURE_DESTINATIONS = {
-    STRUCTURE_4:  {"name": "Structure 4", "address": "UCLA Parking Structure 4, Los Angeles, CA 90095"},
+    STRUCTURE_4:  {"name": "Structure 4", "address": "UCLA Parking Structure 4, Los Angeles, CA 90095",
+                   "lat": 34.0726354, "lng": -118.444769},   # Google's point, verified 2026-10-02
     STRUCTURE_P7: {"name": "Structure 7", "address": "UCLA Parking Structure 7, Charles E Young Dr N, Los Angeles, CA 90095",
                    "lat": 34.0727566, "lng": -118.4469530},
 }
