@@ -584,6 +584,21 @@
     .duo-input { border-color: var(--gold); background: var(--ivory); }
     #success-gif-wrap { border: 1px solid var(--gold); box-shadow: 0 12px 30px rgba(0,0,0,.5); }
 
+    /* Success screen fits one phone screen: GIF capped, safe areas respected */
+    #screen-success .center-screen {
+      padding: max(16px, env(safe-area-inset-top)) 20px max(16px, env(safe-area-inset-bottom));
+      gap: 0;
+    }
+    #success-gif-wrap { max-width: min(280px, 72vw) !important; margin-bottom: 14px !important; }
+    #success-gif { max-height: 30vh; object-fit: cover; }
+    #screen-success .result-title { margin-bottom: 6px; }
+    #screen-success .result-msg { margin-bottom: 16px; font-size: 15px; }
+    #grad-countdown { margin: 0 0 16px !important; }
+    #screen-success .grad-countdown-label { margin-bottom: 8px; }
+    #screen-success .grad-countdown-row { margin-bottom: 8px; }
+    #screen-success .btn { padding-top: 13px; padding-bottom: 13px; }
+    #screen-success .btn + .btn { margin-top: 8px !important; }
+
     #screen-setup .content > div:last-child { border-top-color: rgba(201,162,77,.35) !important; }
     #screen-setup .content > div:last-child p,
     #screen-home .content > div:last-child span,
