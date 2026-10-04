@@ -1041,7 +1041,7 @@
     </div>
     <div class="result-icon" id="success-icon">✅</div>
     <div class="result-title" id="success-title">You're Parked!</div>
-    <div class="result-msg" id="success-msg">Parking purchased successfully.</div>
+    <div class="result-msg" id="success-msg">Check your inbox for a confirmation email.</div>
     <div id="grad-countdown" style="display:none;margin:-14px 0 28px;text-align:center;">
       <div class="grad-countdown-label">🎓 Countdown to Graduation</div>
       <div class="grad-countdown-row">
@@ -1818,7 +1818,7 @@ function handleSuccess(result) {
     document.getElementById('success-title').textContent = "You're Parked!";
     const confirmNum = detail && detail.startsWith('Confirmation') ? ' ' + detail + '.' : '';
     document.getElementById('success-msg').textContent =
-      'Parking purchased successfully. Check your inbox for a confirmation email.' + confirmNum;
+      'Check your inbox for a confirmation email.' + confirmNum;
     document.getElementById('success-icon').style.display = 'none';
     document.getElementById('success-gif-wrap').style.display = 'block';
 
