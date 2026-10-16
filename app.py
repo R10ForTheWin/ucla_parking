@@ -540,17 +540,30 @@ def _send_push(title, body):
                 )
                 sent += 1
             except WebPushException as ex:
+                status = ex.response.status_code if ex.response is not None else 'no response'
+                reason = ex.response.text[:200] if ex.response is not None else str(ex)[:200]
+                print(f"[JUSTIN PUSH] send failed [{status}] {_sub_label(sub)}: {reason}", flush=True)
                 if ex.response is not None and ex.response.status_code in (404, 410):
                     expired.append(sub['endpoint'])
-            except Exception:
-                pass
+            except Exception as ex:
+                print(f"[JUSTIN PUSH] send error {_sub_label(sub)}: {type(ex).__name__}: {ex}", flush=True)
         if expired:
             with _push_lock:
                 clean = [s for s in _load_subs() if s.get('endpoint') not in expired]
                 _save_subs(clean)
+            print(f"[JUSTIN PUSH] pruned {len(expired)} expired subscription(s)", flush=True)
+        if sent < len(subs):
+            print(f"[JUSTIN PUSH] sent {sent}/{len(subs)}", flush=True)
     except Exception as ex:
         print(f"[JUSTIN PUSH] _send_push failed: {ex}", flush=True)
     return sent
+
+
+def _sub_label(sub):
+    """Short, non-secret device label for logs, e.g. 'apple …k6Hx9QaZ'."""
+    endpoint = sub.get('endpoint', '')
+    service = 'apple' if 'apple.com' in endpoint else 'fcm' if 'googleapis' in endpoint else 'other'
+    return f"{service} …{endpoint[-8:]}"
 
 
 @app.route('/api/vapid-public-key')
