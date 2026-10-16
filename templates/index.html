@@ -593,9 +593,39 @@
     #success-gif { max-height: 30vh; object-fit: cover; }
     #screen-success .result-title { margin-bottom: 6px; }
     #screen-success .result-msg { margin-bottom: 16px; font-size: 15px; }
-    #grad-countdown { margin: 0 0 16px !important; }
-    #screen-success .grad-countdown-label { margin-bottom: 8px; }
-    #screen-success .grad-countdown-row { margin-bottom: 8px; }
+    #grad-countdown { margin: 6px 0 24px !important; }
+    #screen-success .grad-countdown-label { margin-bottom: 14px; }
+    /* Two counters side by side, each label tucked under its own number */
+    .grad-countdown-stats { display: flex; justify-content: center; align-items: flex-start; }
+    #screen-success .grad-countdown-row { margin: 0; padding: 0 18px; min-width: 120px; }
+    #screen-success .grad-countdown-row + .grad-countdown-row { border-left: 1px solid rgba(201,162,77,.45); }
+    #screen-success .grad-countdown-sub { margin-top: 8px; line-height: 1.35; }
+
+    /* Program progress bar (success screen, under the flip clocks) */
+    .grad-progress { width: min(280px, 80vw); margin: 22px auto 0; }
+    .grad-progress-track {
+      position: relative; height: 10px; border-radius: 5px; overflow: hidden;
+      background: rgba(251,247,238,.24); border: 1px solid rgba(201,162,77,.55);
+    }
+    @media (max-height: 700px) { #success-gif { max-height: 24vh; } }
+    .grad-progress-fill {
+      position: absolute; inset: 0 auto 0 0; width: 0;
+      background: var(--foil); box-shadow: 0 0 8px rgba(201,162,77,.6);
+      transition: width 1.2s cubic-bezier(.2,.8,.2,1);
+    }
+    .grad-progress-divider {
+      position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px;
+      background: var(--navy); z-index: 1;
+    }
+    .grad-progress-terms { position: relative; height: 14px; margin-top: 5px; }
+    .grad-progress-term {
+      position: absolute; top: 0; transform: translateX(-50%);
+      font-size: 9px; font-weight: 700; letter-spacing: .3px; line-height: 14px;
+      color: rgba(233,225,204,.55); text-shadow: 0 1px 2px rgba(0,0,0,.6);
+    }
+    .grad-progress-term.done    { color: var(--gold-light); }
+    .grad-progress-term.current { color: #fff; }
+    #grad-progress-caption { margin-top: 6px; }
     #screen-success .btn { padding-top: 13px; padding-bottom: 13px; }
     #screen-success .btn + .btn { margin-top: 8px !important; }
 
@@ -1043,14 +1073,23 @@
     <div class="result-title" id="success-title">You're Parked!</div>
     <div class="result-msg" id="success-msg">Check your inbox for a confirmation email.</div>
     <div id="grad-countdown" style="display:none;margin:-14px 0 28px;text-align:center;">
-      <div class="grad-countdown-label">🎓 Countdown to Graduation</div>
-      <div class="grad-countdown-row">
-        <div class="flip-clock" id="grad-flip-inperson"></div>
-        <div class="grad-countdown-sub">In-Person School Days Left</div>
+      <div class="grad-countdown-label">Countdown to Graduation</div>
+      <div class="grad-countdown-stats">
+        <div class="grad-countdown-row">
+          <div class="flip-clock" id="grad-flip-inperson"></div>
+          <div class="grad-countdown-sub">In-Person<br>School Days Left</div>
+        </div>
+        <div class="grad-countdown-row">
+          <div class="flip-clock" id="grad-flip-calendar"></div>
+          <div class="grad-countdown-sub">Calendar Days<br>Until Graduation</div>
+        </div>
       </div>
-      <div class="grad-countdown-row">
-        <div class="flip-clock" id="grad-flip-calendar"></div>
-        <div class="grad-countdown-sub">Calendar Days Until Graduation</div>
+      <div class="grad-progress" id="grad-progress">
+        <div class="grad-progress-track" id="grad-progress-track">
+          <div class="grad-progress-fill" id="grad-progress-fill"></div>
+        </div>
+        <div class="grad-progress-terms" id="grad-progress-terms"></div>
+        <div class="grad-countdown-sub" id="grad-progress-caption"></div>
       </div>
     </div>
     <button class="btn btn-primary result-btn" onclick="loadHome();show('home')">Done</button>
@@ -1138,6 +1177,20 @@ const SPECIAL_DAYS = {
 
 // Commencement — Class of 2027 (triangle icon on the REV26 dot calendars)
 const GRAD_DATE = "2027-06-11";
+
+// Quarter start dates for the program progress bar. 2025-26 from the official
+// "Program Dates — Class of 2027" PDF (FIL Week Aug 18 starts the program);
+// 2026-27 = first in-person class weekend of each quarter on the REV26 calendars.
+const PROGRAM_TERMS = [
+  { start: "2025-08-18", label: "Su", name: "Summer '25" },
+  { start: "2025-09-26", label: "F",  name: "Fall '25" },
+  { start: "2026-01-09", label: "W",  name: "Winter '26" },
+  { start: "2026-04-10", label: "Sp", name: "Spring '26" },
+  { start: "2026-06-27", label: "Su", name: "Summer '26" },
+  { start: "2026-10-02", label: "F",  name: "Fall '26" },
+  { start: "2027-01-08", label: "W",  name: "Winter '27" },
+  { start: "2027-04-02", label: "Sp", name: "Spring '27" },
+];
 
 // ── State ──────────────────────────────────────────────────────────────────
 let currentJobId      = null;
@@ -1771,14 +1824,16 @@ function showGradCountdown() {
   if (calendarDaysLeft < 0) { wrap.style.display = 'none'; return; }
 
   if (calendarDaysLeft === 0) {
-    label.textContent = "🎉 Today's the Day!";
+    label.textContent = "Today's the Day!";
     document.querySelectorAll('.grad-countdown-row').forEach(r => r.style.display = 'none');
+    document.getElementById('grad-progress').style.display = 'none';
     wrap.style.display = 'block';
     return;
   }
 
   document.querySelectorAll('.grad-countdown-row').forEach(r => r.style.display = '');
-  label.textContent = '🎓 Countdown to Graduation';
+  document.getElementById('grad-progress').style.display = '';
+  label.textContent = 'Countdown to Graduation';
 
   // Remaining in-person school days: PARKING_DATES entries strictly after today
   // (today's class day, if any, was just handled by this purchase).
@@ -1786,7 +1841,48 @@ function showGradCountdown() {
 
   renderFlipDigits('grad-flip-inperson', inPersonDaysLeft, 2);
   renderFlipDigits('grad-flip-calendar', calendarDaysLeft, 3);
+  renderGradProgress(today);
   wrap.style.display = 'block';
+}
+
+// Calendar-time progress from FIL Week to Commencement, with a divider at
+// each quarter start and the quarter initials underneath.
+function renderGradProgress(today) {
+  const day   = s => new Date(s + 'T00:00:00').getTime();
+  const start = day(PROGRAM_TERMS[0].start), end = day(GRAD_DATE);
+  const pctOf = s => Math.min(100, Math.max(0, (day(s) - start) / (end - start) * 100));
+  const pct   = pctOf(today);
+
+  const track = document.getElementById('grad-progress-track');
+  track.querySelectorAll('.grad-progress-divider').forEach(el => el.remove());
+  const terms = PROGRAM_TERMS.map((t, i) => {
+    const from = pctOf(t.start);
+    const to   = i + 1 < PROGRAM_TERMS.length ? pctOf(PROGRAM_TERMS[i + 1].start) : 100;
+    if (i > 0) {
+      const div = document.createElement('div');
+      div.className = 'grad-progress-divider';
+      div.style.left = from + '%';
+      track.appendChild(div);
+    }
+    const state = pct >= to ? 'done' : pct >= from ? 'current' : '';
+    return { ...t, mid: (from + to) / 2, state };
+  });
+
+  document.getElementById('grad-progress-terms').innerHTML = terms.map(t =>
+    `<span class="grad-progress-term ${t.state}" style="left:${t.mid}%">${t.label}</span>`
+  ).join('');
+
+  const current = terms.find(t => t.state === 'current');
+  document.getElementById('grad-progress-caption').textContent =
+    `${Math.floor(pct)}% Complete` + (current ? ` · ${current.name}` : '');
+
+  // Animate from empty on each show
+  const fill = document.getElementById('grad-progress-fill');
+  fill.style.transition = 'none';
+  fill.style.width = '0';
+  void fill.offsetWidth;
+  fill.style.transition = '';
+  fill.style.width = pct + '%';
 }
 
 // ── Success handler ────────────────────────────────────────────────────────
