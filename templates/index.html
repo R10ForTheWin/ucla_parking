@@ -2264,6 +2264,21 @@ function maybeShowHomescreenPrompt() {
     history.replaceState(null, '', location.pathname); // clean up URL
   }
 
+  // ?preview=success[&class=2028] → show the success screen without saving a
+  // purchase or changing the stored class
+  const params = new URLSearchParams(location.search);
+  if (params.get('preview') === 'success') {
+    if (params.get('class')) applyClassSchedule(params.get('class'));
+    document.getElementById('success-title').textContent = "You're Parked!";
+    document.getElementById('success-msg').textContent = 'Check your inbox for a confirmation email.';
+    document.getElementById('success-icon').style.display = 'none';
+    document.getElementById('success-gif-wrap').style.display = 'block';
+    showGradCountdown();
+    show('success');
+    history.replaceState(null, '', location.pathname);
+    return;
+  }
+
   const p = getProfile();
   if (p.username && p.password) {
     loadHome();
