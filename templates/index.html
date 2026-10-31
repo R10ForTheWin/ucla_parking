@@ -602,30 +602,31 @@
     #screen-success .grad-countdown-sub { margin-top: 8px; line-height: 1.35; }
 
     /* Program progress bar (success screen, under the flip clocks) */
-    .grad-progress { width: min(280px, 80vw); margin: 22px auto 0; }
-    .grad-progress-track {
-      position: relative; height: 10px; border-radius: 5px; overflow: hidden;
-      background: rgba(251,247,238,.24); border: 1px solid rgba(201,162,77,.55);
-    }
+    .grad-progress { width: min(300px, 84vw); margin: 22px auto 0; }
     @media (max-height: 700px) { #success-gif { max-height: 24vh; } }
-    .grad-progress-fill {
-      position: absolute; inset: 0 auto 0 0; width: 0;
-      background: var(--foil); box-shadow: 0 0 8px rgba(201,162,77,.6);
-      transition: width 1.2s cubic-bezier(.2,.8,.2,1);
+    .grad-years { display: flex; gap: 12px; }
+    .grad-year { min-width: 0; }
+    .grad-year-qs { display: flex; gap: 4px; }
+    .grad-q {
+      flex: 1; height: 10px; border-radius: 5px; overflow: hidden;
+      background: rgba(251,247,238,.18); border: 1px solid rgba(201,162,77,.45);
     }
-    .grad-progress-divider {
-      position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px;
-      background: var(--navy); z-index: 1;
+    .grad-q.done, .grad-q.current { border-color: rgba(201,162,77,.85); }
+    .grad-q-fill {
+      height: 100%; width: 0;
+      background: var(--foil); box-shadow: 0 0 6px rgba(201,162,77,.6);
+      transition: width .5s cubic-bezier(.2,.8,.2,1);
     }
-    .grad-progress-terms { position: relative; height: 14px; margin-top: 5px; }
-    .grad-progress-term {
-      position: absolute; top: 0; transform: translateX(-50%);
-      font-size: 9px; font-weight: 700; letter-spacing: .3px; line-height: 14px;
-      color: rgba(233,225,204,.55); text-shadow: 0 1px 2px rgba(0,0,0,.6);
+    /* "──── Year 1 ────" under each half */
+    .grad-year-label {
+      display: flex; align-items: center; gap: 6px; margin-top: 6px;
+      font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+      color: rgba(233,225,204,.7); text-shadow: 0 1px 2px rgba(0,0,0,.6); white-space: nowrap;
     }
-    .grad-progress-term.done    { color: var(--gold-light); }
-    .grad-progress-term.current { color: #fff; }
-    #grad-progress-caption { margin-top: 6px; }
+    .grad-year-label::before, .grad-year-label::after {
+      content: ''; flex: 1; height: 1px; background: rgba(201,162,77,.45);
+    }
+    #grad-progress-caption { margin-top: 8px; }
     #screen-success .btn { padding-top: 13px; padding-bottom: 13px; }
     #screen-success .btn + .btn { margin-top: 8px !important; }
 
@@ -1102,15 +1103,15 @@
         </div>
       </div>
       <div class="grad-progress" id="grad-progress">
-        <div class="grad-progress-track" id="grad-progress-track">
-          <div class="grad-progress-fill" id="grad-progress-fill"></div>
-        </div>
-        <div class="grad-progress-terms" id="grad-progress-terms"></div>
+        <div class="grad-years" id="grad-progress-track"></div>
         <div class="grad-countdown-sub" id="grad-progress-caption"></div>
       </div>
     </div>
-    <button class="btn btn-primary result-btn" onclick="loadHome();show('home')">Done</button>
-    <button class="btn btn-outline" onclick="shareApp()" style="margin-top:10px;width:280px">Share Justin EMBAlake App With A Classmate</button>
+    <!-- Equal rows: Done matches the two-line Share button -->
+    <div style="display:grid;grid-auto-rows:1fr;gap:8px;width:280px;margin:0 auto;">
+      <button class="btn btn-primary" onclick="loadHome();show('home')">Done</button>
+      <button class="btn btn-outline" onclick="shareApp()" style="margin-top:0 !important">Share Justin EMBAlake App With A Classmate</button>
+    </div>
   </div>
 </div>
 
@@ -1964,44 +1965,42 @@ function showGradCountdown() {
   wrap.style.display = 'block';
 }
 
-// Calendar-time progress from FIL Week to Commencement, with a divider at
-// each quarter start and the quarter initials underneath.
+// One pill per quarter, grouped into Year 1 (first four quarters) and Year 2.
+// Done quarters are full, the current one fills by calendar time; the overall
+// % is calendar time from program start to Commencement.
 function renderGradProgress(today) {
   const day   = s => new Date(s + 'T00:00:00').getTime();
   const start = day(PROGRAM_TERMS[0].start), end = day(GRAD_DATE);
-  const pctOf = s => Math.min(100, Math.max(0, (day(s) - start) / (end - start) * 100));
-  const pct   = pctOf(today);
+  const frac  = (from, to) => Math.min(1, Math.max(0, (day(today) - day(from)) / (day(to) - day(from))));
+  const pct   = frac(PROGRAM_TERMS[0].start, GRAD_DATE) * 100;
 
-  const track = document.getElementById('grad-progress-track');
-  track.querySelectorAll('.grad-progress-divider').forEach(el => el.remove());
   const terms = PROGRAM_TERMS.map((t, i) => {
-    const from = pctOf(t.start);
-    const to   = i + 1 < PROGRAM_TERMS.length ? pctOf(PROGRAM_TERMS[i + 1].start) : 100;
-    if (i > 0) {
-      const div = document.createElement('div');
-      div.className = 'grad-progress-divider';
-      div.style.left = from + '%';
-      track.appendChild(div);
-    }
-    const state = pct >= to ? 'done' : pct >= from ? 'current' : '';
-    return { ...t, mid: (from + to) / 2, state };
+    const fill = frac(t.start, i + 1 < PROGRAM_TERMS.length ? PROGRAM_TERMS[i + 1].start : GRAD_DATE);
+    return { ...t, fill, state: fill >= 1 ? 'done' : fill > 0 ? 'current' : '' };
   });
+  const years = [terms.slice(0, 4), terms.slice(4)];
 
-  document.getElementById('grad-progress-terms').innerHTML = terms.map(t =>
-    `<span class="grad-progress-term ${t.state}" style="left:${t.mid}%">${t.label}</span>`
+  document.getElementById('grad-progress-track').innerHTML = years.map((qs, y) =>
+    `<div class="grad-year" style="flex:${qs.length}">
+       <div class="grad-year-qs">${qs.map(t =>
+         `<div class="grad-q ${t.state}" title="${t.name}"><div class="grad-q-fill" data-fill="${t.fill}"></div></div>`).join('')}
+       </div>
+       <div class="grad-year-label">Year ${y + 1}</div>
+     </div>`
   ).join('');
 
-  const current = terms.find(t => t.state === 'current');
-  document.getElementById('grad-progress-caption').textContent =
-    `${Math.floor(pct)}% Complete` + (current ? ` · ${current.name}` : '');
+  const ci = terms.findIndex(t => t.state === 'current');
+  document.getElementById('grad-progress-caption').innerHTML =
+    (ci >= 0 ? `Quarter ${ci + 1} of ${terms.length} · ${terms[ci].name}<br>` : '') +
+    `${Math.floor(pct)}% Complete`;
 
-  // Animate from empty on each show
-  const fill = document.getElementById('grad-progress-fill');
-  fill.style.transition = 'none';
-  fill.style.width = '0';
-  void fill.offsetWidth;
-  fill.style.transition = '';
-  fill.style.width = pct + '%';
+  // Animate from empty on each show, one quarter after another
+  const fills = document.querySelectorAll('#grad-progress-track .grad-q-fill');
+  void document.getElementById('grad-progress-track').offsetWidth;
+  fills.forEach((el, i) => {
+    el.style.transitionDelay = (i * 0.12) + 's';
+    el.style.width = (el.dataset.fill * 100) + '%';
+  });
 }
 
 // ── Success handler ────────────────────────────────────────────────────────
