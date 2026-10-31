@@ -46,7 +46,7 @@ jobs:
           now = datetime.datetime.now(pacific)
           today = now.strftime('%Y-%m-%d')
           is_manual = '${{ github.event_name }}' == 'workflow_dispatch'
-          is_class_day = today in config.PARKING_DATES
+          is_class_day = today in config.ALL_PARKING_DATES
 
           # Late GitHub runs are allowed through: the server enforces the
           # 5:55-11:00 AM PT window and once-per-day dedup.

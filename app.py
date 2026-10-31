@@ -519,11 +519,13 @@ def _save_push_state(state):
     _gist_write(_GIST_ID, _PUSH_STATE_FILE, state)
 
 
-def _send_push(title, body):
-    """Send to all subscribers, prune expired ones, return count actually sent."""
+def _send_push(title, body, cohort=None):
+    """Send to all subscribers (or one class's), prune expired ones, return count actually sent."""
     sent = 0
     try:
         subs = _load_subs()
+        if cohort:
+            subs = [s for s in subs if config.cohort_of(s.get('cohort')) == cohort]
         if not subs:
             return sent
         from pywebpush import webpush, WebPushException
@@ -600,6 +602,7 @@ def api_subscribe():
     sub = request.json
     if not sub or 'endpoint' not in sub:
         return jsonify({'error': 'Invalid subscription'}), 400
+    sub['cohort'] = config.cohort_of(sub.get('cohort'))
     with _push_lock:
         subs = _load_subs()
         is_new = not any(s.get('endpoint') == sub['endpoint'] for s in subs)
@@ -679,15 +682,16 @@ def api_send_push():
     return jsonify({'sent': sent, 'expired_cleaned': len(expired)})
 
 
-def _class_day_push_body(today):
-    special_day = config.SPECIAL_DAYS.get(today)
+def _class_day_push_body(today, cohort=config.DEFAULT_COHORT):
+    sched = config.COHORTS[cohort]
+    special_day = sched['special_days'].get(today)
     if special_day:
         return f'Tap to open Justin and buy parking for today. Good luck on {special_day}!'
-    if today in config.AUGUST_BLOCK_DATES:
+    if today in sched['august_block_dates']:
         return "Tap to open Justin and buy parking for today — if you're enrolled in August Block."
-    if today in config.ELECTIVE_DATES:
+    if today in sched['elective_dates']:
         return "Tap to open Justin and buy parking for today — if you're taking an elective."
-    if today in config.BIWEEKLY_ONLY_DATES:
+    if today in sched['biweekly_only_dates']:
         return "Tap to open Justin and buy parking for today — Bi-Weekly students only."
     return 'Tap to open Justin and buy parking for today — Bi-Weekly + Monthly students.'
 
@@ -716,8 +720,10 @@ def api_daily_push():
         now = _dt.datetime.fromisoformat(request.args['at']).replace(tzinfo=pacific)
     today = now.strftime('%Y-%m-%d')
 
+    # Classes that meet today. A forced send on a non-class day goes to everyone.
+    cohorts = [c for c, s in config.COHORTS.items() if today in s['parking_dates']]
     if not force:
-        if today not in config.PARKING_DATES:
+        if not cohorts:
             return jsonify({'status': 'skipped', 'reason': 'not a class day', 'today': today, 'dry_run': dry_run})
         minutes = now.hour * 60 + now.minute
         if not (5 * 60 + 55 <= minutes < 11 * 60):
@@ -727,7 +733,13 @@ def api_daily_push():
         state = _load_push_state()
         if not force and state.get('last_daily_push') == today:
             return jsonify({'status': 'already_sent', 'today': today, 'sent_at': state.get('last_daily_push_at'), 'dry_run': dry_run})
-        body = _class_day_push_body(today)
+        # A newer class with no phones yet isn't a failed send — skip it.
+        subs = _load_subs()
+        targets = [c for c in (cohorts or [None])
+                   if c in (None, config.DEFAULT_COHORT) or any(config.cohort_of(s.get('cohort')) == c for s in subs)]
+        if not targets:
+            return jsonify({'status': 'skipped', 'reason': "no subscribers in today's class", 'today': today, 'dry_run': dry_run})
+        bodies = {c: _class_day_push_body(today, c or config.DEFAULT_COHORT) for c in targets}
 
         if dry_run:
             state['last_dry_run_at'] = _dt.datetime.now(pacific).isoformat(timespec='seconds')
@@ -736,10 +748,11 @@ def api_daily_push():
                 gist_write = 'ok'
             except Exception as ex:
                 gist_write = f'failed: {ex}'
-            return jsonify({'status': 'would_send', 'today': today, 'title': "It's a School Day!", 'body': body,
-                            'subscribers': len(_load_subs()), 'gist_write': gist_write, 'dry_run': True})
+            return jsonify({'status': 'would_send', 'today': today, 'title': "It's a School Day!",
+                            'body': next(iter(bodies.values())), 'bodies': {c or 'all': b for c, b in bodies.items()},
+                            'subscribers': len(subs), 'gist_write': gist_write, 'dry_run': True})
 
-        sent = _send_push("It's a School Day!", body)
+        sent = sum(_send_push("It's a School Day!", body, c) for c, body in bodies.items())
         if sent:
             state['last_daily_push']    = today
             state['last_daily_push_at'] = now.strftime('%H:%M:%S')
@@ -847,11 +860,11 @@ def _leave_now_payload(origin, dest, now_pt, arrive_by, base, drive_seconds):
             'late_min': max(0, round((eta - arrive_by).total_seconds() / 60))}
 
 
-def _compute_leave_by(origin, structure, now_pt, drive_seconds=_drive_seconds):
+def _compute_leave_by(origin, structure, now_pt, drive_seconds=_drive_seconds, cohort=config.DEFAULT_COHORT):
     import datetime as _dt
     fmt = lambda t: t.strftime('%-I:%M %p')
     today = now_pt.strftime('%Y-%m-%d')
-    start = config.class_start(today) if today in config.PARKING_DATES else None
+    start = config.class_start(today, cohort) if today in config.COHORTS[cohort]['parking_dates'] else None
     if not start:
         return {'status': 'no_class'}
     dest = config.STRUCTURE_DESTINATIONS.get(structure) or config.STRUCTURE_DESTINATIONS[config.STRUCTURE_4]
@@ -913,6 +926,7 @@ def api_leave_by():
     if len(address) > 200 or 0 < len(address) < 5:
         return jsonify({'error': 'invalid address'}), 400
     structure = str(data.get('structure') or config.STRUCTURE_4)
+    cohort = config.cohort_of(data.get('cohort'))
 
     from zoneinfo import ZoneInfo
     import datetime as _dt
@@ -923,15 +937,15 @@ def api_leave_by():
     if data.get('at') and secret and request.headers.get('X-Push-Secret') == secret:
         sim = _dt.datetime.fromisoformat(data['at']).replace(tzinfo=ZoneInfo('America/Los_Angeles'))
         try:
-            payload = _compute_leave_by(address, structure, sim)
+            payload = _compute_leave_by(address, structure, sim, cohort=cohort)
         except Exception as ex:
             return jsonify({'status': 'error', 'error': f'{type(ex).__name__}: {ex}'}), 502
         return jsonify({**payload, 'destination_latlng': dict(_last_route_end)})
     ip = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
     if not address:   # schedule check only — no Google request
-        return jsonify(_compute_leave_by(None, structure, now_pt))
+        return jsonify(_compute_leave_by(None, structure, now_pt, cohort=cohort))
     import hashlib
-    key = (hashlib.sha256(address.lower().encode()).hexdigest()[:16], structure, now_pt.strftime('%Y-%m-%d'))
+    key = (hashlib.sha256(address.lower().encode()).hexdigest()[:16], structure, cohort, now_pt.strftime('%Y-%m-%d'))
     with _leave_by_lock:
         hit = _leave_by_cache.get(key)
         if hit and hit[0] > time.time():
@@ -941,7 +955,7 @@ def api_leave_by():
             return jsonify({'status': 'rate_limited'}), 429
         _leave_by_hits[ip] = recent + [time.time()]
     try:
-        payload = _compute_leave_by(address, structure, now_pt)
+        payload = _compute_leave_by(address, structure, now_pt, cohort=cohort)
     except RoutesQuotaExceeded as ex:
         print(f"[JUSTIN LEAVE-BY] free-tier cap reached ({ex}) — hiding leave-by", flush=True)
         return jsonify({'status': 'unavailable'})

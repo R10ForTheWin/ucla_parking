@@ -701,6 +701,13 @@
   <div class="content">
     <div class="card">
       <div class="form-group">
+        <label>Your EMBA Class</label>
+        <div class="toggle-row" style="margin-bottom:0">
+          <button type="button" class="toggle-btn" id="s-class-2027" onclick="selectSetupClass('2027')">Class of '27</button>
+          <button type="button" class="toggle-btn" id="s-class-2028" onclick="selectSetupClass('2028')">Class of '28</button>
+        </div>
+      </div>
+      <div class="form-group">
         <label>UCLA Logon ID</label>
         <input type="text" id="s-username" placeholder="yourloginid"
                autocomplete="username" autocapitalize="none" spellcheck="false">
@@ -1123,7 +1130,7 @@
 const STRUCTURE_4  = "2003";
 const STRUCTURE_P7 = "2128";
 
-const PARKING_DATES = new Set([
+let PARKING_DATES = new Set([
   "2026-01-09","2026-01-10","2026-02-13","2026-02-14","2026-02-21",
   "2026-02-27","2026-02-28","2026-03-06","2026-03-07","2026-03-13","2026-03-14","2026-03-20","2026-03-21",
   "2026-04-01","2026-04-08","2026-04-10","2026-04-11","2026-04-12","2026-04-15","2026-04-22","2026-04-24",
@@ -1146,19 +1153,19 @@ const PARKING_DATES = new Set([
 // section does not meet those days. Everything else in PARKING_DATES is
 // shared by both sections. Sourced from the REV26 dot calendars (Class of
 // 2027, dated 08.06.2026).
-const BIWEEKLY_ONLY_DATES = new Set([
+let BIWEEKLY_ONLY_DATES = new Set([
   "2026-10-16","2026-10-17","2026-11-13","2026-11-14",
 ]);
 
-const AI_MANAGERS_DATES = new Set([
+let AI_MANAGERS_DATES = new Set([
   "2026-04-01","2026-04-08","2026-04-15","2026-04-22","2026-04-29",
 ]);
 
-const EVI_DATES = new Set([
+let EVI_DATES = new Set([
   "2026-04-12","2026-05-10","2026-05-31",
 ]);
 
-const ELECTIVE_DATES = new Set([
+let ELECTIVE_DATES = new Set([
   "2026-06-27","2026-06-28",
   "2026-07-18","2026-07-19",
   "2026-08-08","2026-08-09","2026-08-10","2026-08-11","2026-08-12","2026-08-13","2026-08-14",
@@ -1166,22 +1173,22 @@ const ELECTIVE_DATES = new Set([
   "2026-10-04","2026-11-01","2026-12-06","2027-01-10","2027-02-07","2027-03-07","2027-04-04","2027-05-02","2027-06-06",  // optional EMBA Hybrid Elective Sundays (dot calendar squares)
 ]);
 
-const AUGUST_BLOCK_DATES = new Set([
+let AUGUST_BLOCK_DATES = new Set([
   "2026-08-10","2026-08-11","2026-08-12","2026-08-13","2026-08-14",
 ]);
 
-const SPECIAL_DAYS = {
+let SPECIAL_DAYS = {
   "2027-05-01": "Final Defense",
   "2027-06-05": "Demo Day",
 };
 
 // Commencement — Class of 2027 (triangle icon on the REV26 dot calendars)
-const GRAD_DATE = "2027-06-11";
+let GRAD_DATE = "2027-06-11";
 
 // Quarter start dates for the program progress bar. 2025-26 from the official
 // "Program Dates — Class of 2027" PDF (FIL Week Aug 18 starts the program);
 // 2026-27 = first in-person class weekend of each quarter on the REV26 calendars.
-const PROGRAM_TERMS = [
+let PROGRAM_TERMS = [
   { start: "2025-08-18", label: "Su", name: "Summer '25" },
   { start: "2025-09-26", label: "F",  name: "Fall '25" },
   { start: "2026-01-09", label: "W",  name: "Winter '26" },
@@ -1191,6 +1198,81 @@ const PROGRAM_TERMS = [
   { start: "2027-01-08", label: "W",  name: "Winter '27" },
   { start: "2027-04-02", label: "Sp", name: "Spring '27" },
 ];
+
+// ── Class of 2028 ──────────────────────────────────────────────────────────
+// Phones that never picked a class are Class of 2027 (everything above).
+// '28 schedule from the Class of 2028 dot calendars (dated 08.17.2026) —
+// keep in sync with the *_2028 sets in config.py.
+function hasPickedClass() {
+  try { return !!localStorage.getItem('justin_class'); } catch (e) { return false; }
+}
+
+function getClassYear() {
+  try { return localStorage.getItem('justin_class') === '2028' ? '2028' : '2027'; } catch (e) { return '2027'; }
+}
+const CLASS_2027 = { PARKING_DATES, BIWEEKLY_ONLY_DATES, AI_MANAGERS_DATES, EVI_DATES, ELECTIVE_DATES,
+                     AUGUST_BLOCK_DATES, SPECIAL_DAYS, GRAD_DATE, PROGRAM_TERMS };
+
+const CLASS_2028 = {
+  PARKING_DATES: new Set([
+    "2026-08-23","2026-08-24","2026-08-25","2026-08-26","2026-08-27","2026-08-28",  // opening residential
+    "2026-09-25","2026-09-26","2026-10-09","2026-10-10","2026-10-23","2026-10-24",
+    "2026-11-06","2026-11-07","2026-11-20","2026-11-21","2026-12-12",
+    "2027-01-08","2027-01-09","2027-01-22","2027-01-23","2027-01-29","2027-01-30",
+    "2027-02-12","2027-02-13","2027-02-26","2027-02-27","2027-03-13",
+    "2027-04-09","2027-04-10","2027-04-23","2027-04-24",
+    "2027-05-07","2027-05-08","2027-05-21","2027-05-22",
+    "2027-06-04","2027-06-05","2027-06-12",
+    "2027-10-01","2027-10-02","2027-10-15","2027-10-16","2027-10-29","2027-10-30",
+    "2027-11-12","2027-11-13","2027-12-03","2027-12-04","2027-12-11",
+    "2028-01-07","2028-01-08","2028-01-28","2028-01-29","2028-01-30",
+    "2028-02-04","2028-02-05","2028-03-03","2028-03-04",
+    "2028-04-07","2028-04-08","2028-04-28","2028-04-29",
+    "2028-06-02","2028-06-03","2028-06-09",
+    "2027-01-10","2027-01-31","2027-02-28","2027-04-11","2027-05-09","2027-06-06",  // optional EMBA Hybrid Electives (dot calendar squares)
+    "2027-06-26","2027-06-27","2027-07-17","2027-07-18","2027-08-07","2027-08-08",
+    "2027-08-28","2027-08-29","2027-10-03","2027-10-31","2027-12-05",
+    "2028-01-09","2028-02-06","2028-03-05","2028-04-09","2028-04-30","2028-06-04",
+    "2027-08-09","2027-08-10","2027-08-11","2027-08-12","2027-08-13",  // August Block
+  ]),
+  BIWEEKLY_ONLY_DATES: new Set([
+    "2026-10-09","2026-10-10","2026-11-06","2026-11-07","2026-12-12",
+    "2027-01-22","2027-01-23","2027-02-12","2027-02-13","2027-03-13",
+    "2027-04-23","2027-04-24","2027-05-21","2027-05-22","2027-06-12",
+    "2027-10-15","2027-10-16","2027-11-12","2027-11-13","2027-12-11",
+  ]),
+  AI_MANAGERS_DATES: new Set(),
+  EVI_DATES: new Set(),
+  ELECTIVE_DATES: new Set([
+    "2027-01-10","2027-01-31","2027-02-28","2027-04-11","2027-05-09","2027-06-06",
+    "2027-06-26","2027-06-27","2027-07-17","2027-07-18","2027-08-07","2027-08-08",
+    "2027-08-28","2027-08-29","2027-10-03","2027-10-31","2027-12-05",
+    "2028-01-09","2028-02-06","2028-03-05","2028-04-09","2028-04-30","2028-06-04",
+    "2027-08-09","2027-08-10","2027-08-11","2027-08-12","2027-08-13",
+  ]),
+  AUGUST_BLOCK_DATES: new Set([
+    "2027-08-09","2027-08-10","2027-08-11","2027-08-12","2027-08-13",
+  ]),
+  SPECIAL_DAYS: {},
+  GRAD_DATE: "2028-06-09",
+  // Opening residential starts the program; then the first in-person class
+  // weekend of each quarter.
+  PROGRAM_TERMS: [
+    { start: "2026-08-23", label: "F",  name: "Fall '26" },
+    { start: "2027-01-08", label: "W",  name: "Winter '27" },
+    { start: "2027-04-09", label: "Sp", name: "Spring '27" },
+    { start: "2027-06-26", label: "Su", name: "Summer '27" },
+    { start: "2027-10-01", label: "F",  name: "Fall '27" },
+    { start: "2028-01-07", label: "W",  name: "Winter '28" },
+    { start: "2028-04-07", label: "Sp", name: "Spring '28" },
+  ],
+};
+
+function applyClassSchedule(year) {
+  ({ PARKING_DATES, BIWEEKLY_ONLY_DATES, AI_MANAGERS_DATES, EVI_DATES, ELECTIVE_DATES,
+     AUGUST_BLOCK_DATES, SPECIAL_DAYS, GRAD_DATE, PROGRAM_TERMS } = year === '2028' ? CLASS_2028 : CLASS_2027);
+}
+applyClassSchedule(getClassYear());
 
 // ── State ──────────────────────────────────────────────────────────────────
 let currentJobId      = null;
@@ -1224,6 +1306,7 @@ function isAlertsOnly() {
 }
 
 function setupAlertsOnly() {
+  if (!saveSetupClass()) return;
   localStorage.removeItem('justin_username');
   localStorage.removeItem('justin_password');
   loadHome();
@@ -1239,11 +1322,36 @@ function esc(str) {
 }
 
 // ── Setup screen ───────────────────────────────────────────────────────────
+// New phones must pick a class; phones set up before the picker existed are '27.
+let setupClass = null;
+
+function selectSetupClass(year) {
+  setupClass = year;
+  ['2027', '2028'].forEach(y =>
+    document.getElementById('s-class-' + y).classList.toggle('selected', y === year));
+}
+
+// Store the picked class (or show an error); true when one is picked.
+function saveSetupClass() {
+  const errEl = document.getElementById('setup-err');
+  if (!setupClass) {
+    errEl.textContent = 'Pick your EMBA class first.';
+    errEl.style.display = 'block';
+    return false;
+  }
+  const changed = setupClass !== getClassYear() || !hasPickedClass();
+  try { localStorage.setItem('justin_class', setupClass); } catch (e) {}
+  applyClassSchedule(setupClass);
+  if (changed) _syncSubscription();   // so class-day alerts follow the new class
+  return true;
+}
+
 function openSetup() {
   const p = getProfile();
   document.getElementById('s-username').value = p.username;
   document.getElementById('s-password').value = p.password;
   document.getElementById('setup-err').style.display = 'none';
+  selectSetupClass(hasPickedClass() || p.username ? getClassYear() : null);
   show('setup');
 }
 
@@ -1252,6 +1360,7 @@ function saveSetup() {
   const password = document.getElementById('s-password').value;
   const errEl    = document.getElementById('setup-err');
 
+  if (!saveSetupClass()) return;
   if (!username || !password) {
     errEl.textContent = 'UCLA Logon ID and password are required.';
     errEl.style.display = 'block';
@@ -1771,7 +1880,7 @@ async function refreshLeaveBy() {
   try {
     const resp = await fetch('/api/leave-by', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address, structure: leaveByStructure }),
+      body: JSON.stringify({ address, structure: leaveByStructure, cohort: getClassYear() }),
     });
     r = await resp.json();
   } catch (e) {
@@ -1993,7 +2102,7 @@ async function _syncSubscription() {
       await fetch('/api/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub),
+        body: JSON.stringify({ ...sub.toJSON(), cohort: getClassYear() }),
       });
     }
   } catch (e) {}
@@ -2090,7 +2199,7 @@ async function _notifOn() {
       await fetch('/api/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub),
+        body: JSON.stringify({ ...sub.toJSON(), cohort: getClassYear() }),
       });
       _setNotifToggle(true);
     } catch (e) {
@@ -2151,7 +2260,7 @@ function maybeShowHomescreenPrompt() {
     loadHome();
     show('home');
   } else {
-    show('setup');
+    openSetup();
   }
   _syncSubscription();
   _updateNotifButton();

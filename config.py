@@ -46,11 +46,12 @@ CLASS_START_OVERRIDES = {
 }
 
 
-def class_start(date_str):
-    """'HH:MM' class start for a PARKING_DATES date, or None if unknown."""
+def class_start(date_str, cohort="2027"):
+    """'HH:MM' class start for a class day of that cohort, or None if unknown."""
     import datetime as _dt
-    if date_str in CLASS_START_OVERRIDES:
-        return CLASS_START_OVERRIDES[date_str]
+    overrides = COHORTS[cohort]["class_start_overrides"]
+    if date_str in overrides:
+        return overrides[date_str]
     return CLASS_START_BY_WEEKDAY.get(_dt.date.fromisoformat(date_str).weekday())
 
 
@@ -109,3 +110,95 @@ SPECIAL_DAYS = {
     "2027-05-01": "Final Defense",
     "2027-06-05": "Demo Day",
 }
+
+
+# ── Class of 2028 ─────────────────────────────────────────────────────────
+# Sourced from the Class of 2028 dot calendars (Bi-Weekly + Monthly Section
+# Calendars, dated 08.17.2026). Same rules as the Class of 2027 sets above:
+# PARKING_DATES follows the Bi-Weekly calendar plus the Monthly-only elective
+# Sunday (2027-06-06); Zoom days and the International Business Residential
+# are left out. Finals: Bi-Weekly's are in person, Monthly's are online.
+PARKING_DATES_2028 = {
+    "2026-08-23", "2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28",  # opening residential
+    "2026-09-25", "2026-09-26", "2026-10-09", "2026-10-10", "2026-10-23", "2026-10-24",
+    "2026-11-06", "2026-11-07", "2026-11-20", "2026-11-21", "2026-12-12",
+    "2027-01-08", "2027-01-09", "2027-01-22", "2027-01-23", "2027-01-29", "2027-01-30",
+    "2027-02-12", "2027-02-13", "2027-02-26", "2027-02-27", "2027-03-13",
+    "2027-04-09", "2027-04-10", "2027-04-23", "2027-04-24",
+    "2027-05-07", "2027-05-08", "2027-05-21", "2027-05-22",
+    "2027-06-04", "2027-06-05", "2027-06-12",
+    "2027-10-01", "2027-10-02", "2027-10-15", "2027-10-16", "2027-10-29", "2027-10-30",
+    "2027-11-12", "2027-11-13", "2027-12-03", "2027-12-04", "2027-12-11",
+    "2028-01-07", "2028-01-08", "2028-01-28", "2028-01-29", "2028-01-30",
+    "2028-02-04", "2028-02-05", "2028-03-03", "2028-03-04",
+    "2028-04-07", "2028-04-08", "2028-04-28", "2028-04-29",
+    "2028-06-02", "2028-06-03", "2028-06-09",
+    "2027-01-10", "2027-01-31", "2027-02-28", "2027-04-11", "2027-05-09", "2027-06-06",  # optional EMBA Hybrid Electives (dot calendar squares)
+    "2027-06-26", "2027-06-27", "2027-07-17", "2027-07-18", "2027-08-07", "2027-08-08",
+    "2027-08-28", "2027-08-29", "2027-10-03", "2027-10-31", "2027-12-05",
+    "2028-01-09", "2028-02-06", "2028-03-05", "2028-04-09", "2028-04-30", "2028-06-04",
+    "2027-08-09", "2027-08-10", "2027-08-11", "2027-08-12", "2027-08-13",  # August Block
+}
+
+ELECTIVE_DATES_2028 = {
+    "2027-01-10", "2027-01-31", "2027-02-28", "2027-04-11", "2027-05-09", "2027-06-06",
+    "2027-06-26", "2027-06-27", "2027-07-17", "2027-07-18", "2027-08-07", "2027-08-08",
+    "2027-08-28", "2027-08-29", "2027-10-03", "2027-10-31", "2027-12-05",
+    "2028-01-09", "2028-02-06", "2028-03-05", "2028-04-09", "2028-04-30", "2028-06-04",
+    "2027-08-09", "2027-08-10", "2027-08-11", "2027-08-12", "2027-08-13",
+}
+
+AUGUST_BLOCK_DATES_2028 = {
+    "2027-08-09", "2027-08-10", "2027-08-11", "2027-08-12", "2027-08-13",
+}
+
+BIWEEKLY_ONLY_DATES_2028 = {
+    "2026-10-09", "2026-10-10", "2026-11-06", "2026-11-07", "2026-12-12",
+    "2027-01-22", "2027-01-23", "2027-02-12", "2027-02-13", "2027-03-13",
+    "2027-04-23", "2027-04-24", "2027-05-21", "2027-05-22", "2027-06-12",
+    "2027-10-15", "2027-10-16", "2027-11-12", "2027-11-13", "2027-12-11",
+}
+
+# ★ "Mandatory Class starts at 10:00 a.m." The sections disagree on 2027-02-26
+# and 2027-04-09 (★ on Monthly only); 10:00 is used so nobody is told to
+# arrive late.
+CLASS_START_OVERRIDES_2028 = {
+    "2026-09-25": "10:00",
+    "2027-02-12": "10:00",
+    "2027-02-26": "10:00",
+    "2027-04-09": "10:00",
+    "2027-04-23": "10:00",
+    "2027-10-01": "10:00",
+    "2028-01-07": "10:00",
+    "2028-04-07": "10:00",
+}
+
+# Per-cohort schedules. Phones that never picked a class are Class of 2027.
+DEFAULT_COHORT = "2027"
+COHORTS = {
+    "2027": {
+        "parking_dates": PARKING_DATES,
+        "elective_dates": ELECTIVE_DATES,
+        "august_block_dates": AUGUST_BLOCK_DATES,
+        "biweekly_only_dates": BIWEEKLY_ONLY_DATES,
+        "class_start_overrides": CLASS_START_OVERRIDES,
+        "special_days": SPECIAL_DAYS,
+    },
+    "2028": {
+        "parking_dates": PARKING_DATES_2028,
+        "elective_dates": ELECTIVE_DATES_2028,
+        "august_block_dates": AUGUST_BLOCK_DATES_2028,
+        "biweekly_only_dates": BIWEEKLY_ONLY_DATES_2028,
+        "class_start_overrides": CLASS_START_OVERRIDES_2028,
+        "special_days": {},
+    },
+}
+
+# Any cohort's class day (GitHub backup cron gate).
+ALL_PARKING_DATES = PARKING_DATES | PARKING_DATES_2028
+
+
+def cohort_of(value):
+    """Normalise a client-sent cohort; anything unknown is the default."""
+    value = str(value or "")
+    return value if value in COHORTS else DEFAULT_COHORT
