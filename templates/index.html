@@ -1120,8 +1120,9 @@
     <div class="result-icon" id="error-icon">❌</div>
     <div class="result-title" id="error-title">Something went wrong</div>
     <div class="result-msg" id="error-msg">An error occurred</div>
-    <button class="btn btn-primary result-btn" id="error-btn" onclick="show('home')">Try Again</button>
+    <button class="btn btn-primary result-btn" id="error-btn" onclick="startBuy()">Try Again</button>
     <button class="btn btn-success result-btn" id="error-mark-purchased-btn" style="display:none;margin-top:10px;" onclick="markAsPurchased()">My Permit Arrived — Mark as Purchased</button>
+    <button class="btn btn-outline result-btn" id="error-home-btn" style="margin-top:10px;" onclick="loadHome();show('home')">Back to Home</button>
   </div>
 </div>
 
@@ -1556,6 +1557,7 @@ async function doRegister() {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     currentJobId = data.job_id;
+    _savePendingJob(data.job_id);
     pollJob(data.job_id);
   } catch (err) {
     showError(err.message);
@@ -1574,8 +1576,8 @@ function showError(msg) {
   document.getElementById('error-title').textContent = soldOut ? 'Cry Me A River'
     : maybeWent ? 'Not Sure If It Went Through'
     : 'Something went wrong';
-  document.getElementById('error-btn').textContent   = soldOut ? 'Go Back' : 'Try Again';
-  document.getElementById('error-btn').style.display = '';
+  // Sold out: nothing to retry. Might have gone through: retrying risks paying twice.
+  document.getElementById('error-btn').style.display = (soldOut || maybeWent) ? 'none' : '';
   document.getElementById('error-mark-purchased-btn').style.display = maybeWent ? '' : 'none';
 
   // Render bruinepermit URLs as clickable links
@@ -1595,9 +1597,41 @@ function markAsPurchased() {
 }
 
 // ── Job polling ────────────────────────────────────────────────────────────
-async function pollJob(jobId) {
+// The job id is kept on this phone until the job finishes, so if iOS suspends
+// or reloads the app mid-purchase (e.g. while approving Duo), reopening Justin
+// picks the job back up and still records the purchase on the home screen.
+function _savePendingJob(jid) {
+  try { localStorage.setItem('justin_pending_job', JSON.stringify({ jid, date: _ptToday() })); } catch (e) {}
+}
+function _clearPendingJob() {
+  try { localStorage.removeItem('justin_pending_job'); } catch (e) {}
+}
+function resumePendingJob() {
+  if (pollingJobId) return;
+  let rec = null;
+  try { rec = JSON.parse(localStorage.getItem('justin_pending_job') || 'null'); } catch (e) {}
+  if (!rec || !rec.jid) return;
+  if (rec.date !== _ptToday()) { _clearPendingJob(); return; }
+  currentJobId = rec.jid;
+  document.getElementById('loading-msg').textContent = 'Checking on your purchase...';
+  show('loading');
+  pollJob(rec.jid, { resumed: true });
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') resumePendingJob();
+});
+
+let pollingJobId = null;
+async function pollJob(jobId, opts = {}) {
+  if (pollingJobId === jobId) return;
+  pollingJobId = jobId;
+  try { await _pollJob(jobId, opts); } finally { if (pollingJobId === jobId) pollingJobId = null; }
+}
+
+async function _pollJob(jobId, opts) {
   const MAX_POLLS = 720; // 6 minutes at 500ms
   let polls = 0;
+  let netErrors = 0;
   let onDuoScreen = false;
   let onVehicleScreen = false;
   let onStructureScreen = false;
@@ -1605,8 +1639,26 @@ async function pollJob(jobId) {
   while (polls++ < MAX_POLLS) {
     await new Promise(r => setTimeout(r, 500));
     try {
-      const res = await fetch('/api/job/' + jobId);
-      const job = await res.json();
+      let job;
+      try {
+        const res = await fetch('/api/job/' + jobId);
+        job = await res.json();
+        netErrors = 0;
+      } catch (e) {
+        // A request cut off by iOS backgrounding the app — keep trying for a while
+        if (++netErrors < 30) continue;
+        throw e;
+      }
+
+      if (job.status === 'done' || job.status === 'error' || job.status === 'not_found') {
+        _clearPendingJob();
+      }
+      if (job.status === 'not_found' && opts.resumed) {
+        // Finished long enough ago that the server forgot it — nothing to recover
+        loadHome();
+        show('home');
+        return;
+      }
 
       if (job.status === 'queued') {
         document.getElementById('loading-msg').textContent  = job.message;
@@ -2287,6 +2339,7 @@ function maybeShowHomescreenPrompt() {
   _syncSubscription();
   _updateNotifButton();
   maybeShowHomescreenPrompt();
+  resumePendingJob();
 })();
 </script>
 </body>

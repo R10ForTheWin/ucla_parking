@@ -1376,7 +1376,7 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
                 _screenshot(page, "success")
                 print(f"[JUSTIN CACHE] Fast path succeeded!", flush=True)
                 return result
-            except (BruinBillUnavailable, PurchaseAlreadyAttempted, UCLARejectedCheckout):
+            except (BruinBillUnavailable, PurchaseAlreadyAttempted, UCLARejectedCheckout, AlreadyHasActivePermit):
                 raise
             except Exception as e:
                 print(f"[JUSTIN CACHE] Fast path failed: {e} — clearing cache, retrying with full login", flush=True)
@@ -1408,7 +1408,7 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
                 _screenshot(page, "success")
                 return result
 
-            except (PurchaseAlreadyAttempted, UCLARejectedCheckout):
+            except (PurchaseAlreadyAttempted, UCLARejectedCheckout, AlreadyHasActivePermit):
                 raise
 
             except BruinBillUnavailable as e:
