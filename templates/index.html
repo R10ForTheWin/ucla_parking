@@ -2104,30 +2104,85 @@ function _carColor(color) {
   return hit ? hit[1] : '#1f2f57';
 }
 
-// Dark paint gets light windows so the glass still reads (a black car isn't a blob)
+// Lighten (amt > 0) or darken (amt < 0) a #rrggbb color
+function _shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = v => Math.round(amt > 0 ? v + (255 - v) * amt : v * (1 + amt));
+  return '#' + [n >> 16, (n >> 8) & 255, n & 255].map(v => ch(v).toString(16).padStart(2, '0')).join('');
+}
 function _isDark(hex) {
   const n = parseInt(hex.slice(1), 16);
   return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) < 90;
 }
 
-function carSvg(shape, fill) {
-  const body = {
-    sedan: 'M4 22V17.5Q4.5 14.2 10 13.6L18 13L24 7.6Q25.8 6 29.5 6H40Q44 6 47 9L51 13L58 14Q61 15 61 18.2V22Z',
-    suv:   'M4 22V15.2Q4 12.6 8 12.1L14 11.5L18.8 5Q19.8 4 23 4H50Q53 4 54.5 6L58 11.6Q61 12.6 61 15.4V22Z',
-    truck: 'M3 22V13H30L33 5Q33.8 4 37 4H46Q48 4 49.5 6L53 12L59 13Q61 13.6 61 16.4V22Z',
-  }[shape];
-  const glass = {
-    sedan: 'M25.6 8.4L21 13H33V8H29.4Q26.7 8 25.6 8.4ZM35 8V13H48L45.2 9.6Q43.6 8 41 8Z',
-    suv:   'M21 6L16.8 11.6H32V6ZM34 6V11.6H56L53.2 6.6Q52.7 6 51 6Z',
-    truck: 'M35 6L32.6 12H50.2L47.6 6.6Q47.1 6 45.6 6Z',
-  }[shape];
-  const [w1, w2] = shape === 'truck' ? [14, 50] : [16, 49];
-  const wheel = x => `<circle cx="${x}" cy="22" r="5.2" fill="#1f2328"/><circle cx="${x}" cy="22" r="2.2" fill="#c9ccd1"/>`;
-  return `<svg viewBox="2 2 61 27" width="42" height="19" aria-hidden="true">
-    <ellipse cx="32" cy="27.5" rx="28" ry="1.6" fill="rgba(0,0,0,.12)"/>
-    <path d="${body}" fill="${fill}" stroke="rgba(0,0,0,.35)" stroke-width=".8" stroke-linejoin="round"/>
-    <path d="${glass}" fill="${_isDark(fill) ? '#a9bccf' : '#2b3a4f'}" opacity=".85"/>
-    ${wheel(w1)}${wheel(w2)}
+// Side-view car, front facing right. Wheels sit in arches cut out of the body.
+const CAR_SHAPES = {
+  suv: {  // boxy, upright — Land Cruiser / 4Runner / Wrangler territory
+    body: 'M6 33V21.5Q6 19 8.5 18.5L11.5 9.2Q12.3 7 15 7H66Q69 7 70.6 9.2L76.8 18Q77.2 18.6 78 18.7L91 20Q95 20.6 95 24.5V33Q95 36 92 36H88A9.5 9.5 0 0 0 69 36H33A9.5 9.5 0 0 0 14 36H9Q6 36 6 33Z',
+    glass: ['M13.2 17.6L15.6 10.7Q16.1 9.5 17.5 9.5H31V17.6Z', 'M33 9.5H50.5V17.6H33Z',
+            'M52.5 9.5H66.6Q68.2 9.5 69.2 10.9L74.2 17.6H52.5Z'],
+    wheels: [23.5, 78.5], doors: [32, 51.5, 72], handles: [36, 56], line: 25, clad: 31.5,
+    rail: 'M15 5.8H65M18 5.8V7M62 5.8V7', mirror: 'M71.5 16.6h3.8l.6 2.6h-4.2Z',
+    head: 'M89.5 21.2L94.6 22.4V25.2L89 24.6Z', tail: 'M6 20.5h2.4v5.5H6Z',
+  },
+  sedan: {
+    body: 'M5 33V28Q5 25.6 8 25L15.5 23.6Q17 23.3 18.2 22.2L24.6 16.2Q26.8 14 30.5 14H55Q60 14 64.5 18L69.6 22.5Q70.4 23.2 71.5 23.3L90 25Q95 25.6 95 29.5V33Q95 36 92 36H88A9.5 9.5 0 0 0 69 36H31.5A9.5 9.5 0 0 0 12.5 36H8Q5 36 5 33Z',
+    glass: ['M22.6 22.4L27.4 17.6Q28.6 16.3 30.6 16.3H42.5V22.4Z',
+            'M44.5 16.3H55Q58.6 16.3 61.8 19.1L65.6 22.4H44.5Z'],
+    wheels: [22, 78.5], doors: [43.5, 66], handles: [36, 57], line: 27.5, clad: 32,
+    mirror: 'M64.6 21.2h3.6l.5 2.4h-4Z', head: 'M89.2 25.6L94.6 26.6V28.8L88.8 28.2Z', tail: 'M5 26.2h2.4v4.4H5Z',
+  },
+  truck: {
+    body: 'M4 33V20H44.5L46.6 9.2Q47.1 7 49.6 7H64Q67 7 68.6 9.2L74.8 18Q75.2 18.6 76 18.7L91 20Q95 20.6 95 24.5V33Q95 36 92 36H88A9.5 9.5 0 0 0 69 36H31A9.5 9.5 0 0 0 12 36H7Q4 36 4 33Z',
+    glass: ['M48.2 17.6L49.8 10.6Q50.1 9.5 51.4 9.5H58.5V17.6Z', 'M60.5 9.5H64.6Q66.2 9.5 67.2 10.9L72.2 17.6H60.5Z'],
+    wheels: [21.5, 78.5], doors: [45.2, 59.5, 72], handles: [63], line: 25, clad: 31.5, bed: 'M4 20H44.5',
+    mirror: 'M69.5 16.6h3.8l.6 2.6h-4.2Z', head: 'M89.5 21.2L94.6 22.4V25.2L89 24.6Z', tail: 'M4 21h2.4v5.5H4Z',
+  },
+};
+
+let _carSvgId = 0;
+function carSvg(shape, fill, size = 44) {
+  const c = CAR_SHAPES[shape] || CAR_SHAPES.sedan;
+  const id = 'car' + (++_carSvgId);
+  const dark = _isDark(fill);
+  const top = _shade(fill, dark ? 0.32 : 0.28), bottom = _shade(fill, -0.38);
+  const glassTop = dark ? '#c7d5e3' : '#5d7088', glassBottom = dark ? '#7f93a8' : '#1f2b3b';
+  const seam = dark ? 'rgba(255,255,255,.16)' : 'rgba(0,0,0,.28)';
+  const well = x => `<path d="M${x - 9.2} 36A9.2 9.2 0 0 1 ${x + 9.2} 36Z" fill="#101114"/>`;
+  const wheel = x => `
+    <circle cx="${x}" cy="36" r="8" fill="#17181b"/>
+    <circle cx="${x}" cy="36" r="5.1" fill="url(#${id}r)"/>
+    ${[0, 72, 144, 216, 288].map(a => `<line x1="${x}" y1="36" x2="${(x + 4.3 * Math.cos((a - 90) * Math.PI / 180)).toFixed(2)}" y2="${(36 + 4.3 * Math.sin((a - 90) * Math.PI / 180)).toFixed(2)}" stroke="#6b7179" stroke-width="1.1" stroke-linecap="round"/>`).join('')}
+    <circle cx="${x}" cy="36" r="1.4" fill="#2a2d31"/>`;
+  return `<svg viewBox="2 3 96 43" width="${size}" height="${(size * 43 / 96).toFixed(1)}" aria-hidden="true">
+    <defs>
+      <linearGradient id="${id}b" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${top}"/><stop offset=".45" stop-color="${fill}"/><stop offset="1" stop-color="${bottom}"/>
+      </linearGradient>
+      <linearGradient id="${id}g" x1="0" y1="0" x2=".35" y2="1">
+        <stop offset="0" stop-color="${glassTop}"/><stop offset="1" stop-color="${glassBottom}"/>
+      </linearGradient>
+      <radialGradient id="${id}r" cx=".4" cy=".35" r=".75">
+        <stop offset="0" stop-color="#eef0f2"/><stop offset="1" stop-color="#9aa1a9"/>
+      </radialGradient>
+      <clipPath id="${id}c"><path d="${c.body}"/></clipPath>
+    </defs>
+    <ellipse cx="50" cy="44.2" rx="45" ry="1.8" fill="rgba(0,0,0,.16)"/>
+    ${c.wheels.map(well).join('')}
+    ${c.rail ? `<path d="${c.rail}" stroke="${_shade(fill, -0.45)}" stroke-width="1.6" stroke-linecap="round"/>` : ''}
+    <path d="${c.body}" fill="url(#${id}b)" stroke="${_shade(fill, -0.5)}" stroke-width=".5" stroke-linejoin="round"/>
+    <g clip-path="url(#${id}c)">
+      <rect x="0" y="${c.clad}" width="100" height="10" fill="rgba(0,0,0,.28)"/>
+      <line x1="0" y1="${c.line}" x2="100" y2="${c.line}" stroke="rgba(255,255,255,${dark ? .2 : .35})" stroke-width=".55"/>
+      ${c.doors.map(x => `<line x1="${x}" y1="${c.line - 6}" x2="${x}" y2="${c.clad}" stroke="${seam}" stroke-width=".45"/>`).join('')}
+      ${c.bed ? `<path d="${c.bed}" stroke="rgba(255,255,255,.3)" stroke-width=".7"/>` : ''}
+    </g>
+    ${c.glass.map(d => `<path d="${d}" fill="url(#${id}g)"/>`).join('')}
+    ${c.handles.map(x => `<rect x="${x}" y="${c.line - 3.1}" width="3.2" height=".9" rx=".45" fill="${dark ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.35)'}"/>`).join('')}
+    <path d="${c.mirror}" fill="${_shade(fill, -0.2)}"/>
+    <path d="${c.head}" fill="#f6f2e4" stroke="rgba(0,0,0,.25)" stroke-width=".3"/>
+    <path d="${c.tail}" fill="#c4252c"/>
+    ${c.wheels.map(wheel).join('')}
   </svg>`;
 }
 
@@ -2155,7 +2210,7 @@ function renderVehicle(override) {
     car.style.display = 'none'; bruin.style.display = ''; sub.textContent = 'Vehicle on file at UCLA';
     return;
   }
-  car.innerHTML = carSvg(_carShape(v.model), _carColor(v.color));
+  car.innerHTML = carSvg(_carShape(v.model), _carColor(v.color), 42);
   car.style.display = 'flex'; bruin.style.display = 'none';
   sub.textContent = _vehicleName(v);
 }
