@@ -912,6 +912,9 @@
         <span style="font-size:12px;font-weight:500;opacity:0.85;">Yellow 1-Day Student · $7.28 · Payment on file</span>
       </div>
     </button>
+    <div id="already-bought-link" style="text-align:center;margin-top:-4px;">
+      <span onclick="markAlreadyBought()" style="font-size:13px;color:var(--muted);text-decoration:underline;cursor:pointer;">Already bought today?</span>
+    </div>
 
     <div id="purchased-card" style="display:none;background:#f0faf2;border:1.5px solid #2DC653;border-radius:16px;padding:18px 20px;">
       <div style="display:flex;align-items:center;gap:14px;">
@@ -1397,6 +1400,7 @@ function loadHome() {
   updateNextDayCard();
 
   const buyBtn = document.getElementById('buy-btn');
+  document.getElementById('already-bought-link').style.display = isAlertsOnly() ? 'none' : '';
   if (isAlertsOnly()) {
     // No credentials — show a link to the UCLA site instead
     buyBtn.innerHTML = `<span style="font-size:32px;width:48px;text-align:center;flex-shrink:0;line-height:1;">🅿️</span><div style="display:flex;flex-direction:column;gap:2px;text-align:left;"><span style="font-size:17px;font-weight:800;">Buy Parking at UCLA</span><span style="font-size:12px;font-weight:500;opacity:0.85;">Opens bruinepermit.t2hosted.com in your browser</span></div>`;
@@ -1594,6 +1598,15 @@ function showError(msg) {
 
 function markAsPurchased() {
   handleSuccess({ dry_run: false, detail: 'Manually confirmed' });
+}
+
+// For a permit bought outside Justin, or a purchase whose result the app missed:
+// show the Parking Secured card without logging in to UCLA.
+function markAlreadyBought() {
+  if (!confirm("Mark today's parking as bought? This only updates Justin's home screen — it doesn't check or buy anything at UCLA.")) return;
+  const rec = { date: _ptToday(), time: '', detail: 'Marked as bought', structure: STRUCTURE_4 };
+  try { localStorage.setItem('justin_last_purchase', JSON.stringify(rec)); } catch (e) {}
+  showPurchasedCard(rec);
 }
 
 // ── Job polling ────────────────────────────────────────────────────────────
@@ -1855,6 +1868,7 @@ function showPurchasedCard(rec) {
   const timeStr = rec.time ? `Purchased at ${rec.time}` : 'Purchased today';
   document.getElementById('purchased-sub').textContent = timeStr + permitStr;
   document.getElementById('buy-btn').style.display = 'none';
+  document.getElementById('already-bought-link').style.display = 'none';
   document.getElementById('purchased-card').style.display = 'block';
   startLeaveBy(rec.structure);
 }
