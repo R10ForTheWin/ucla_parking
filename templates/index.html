@@ -2139,9 +2139,9 @@ function _vehicleName(v) {
   return v.color ? `${name} · ${_titleCase(v.color)}` : name;
 }
 
-function renderVehicle() {
-  let v = null;
-  try { v = JSON.parse(localStorage.getItem('justin_vehicle') || 'null'); } catch (e) {}
+function renderVehicle(override) {
+  let v = override || null;
+  if (!v) try { v = JSON.parse(localStorage.getItem('justin_vehicle') || 'null'); } catch (e) {}
   const car = document.getElementById('home-car');
   const bruin = document.getElementById('home-bruin');
   const sub = document.getElementById('home-vehicle-sub');
@@ -2434,6 +2434,19 @@ function maybeShowHomescreenPrompt() {
     showGradCountdown();
     show('success');
     history.replaceState(null, '', location.pathname);
+    return;
+  }
+
+  // ?preview=vehicle[&make=&model=&color=&year=] → home card with that car, nothing saved
+  if (params.get('preview') === 'vehicle') {
+    loadHome();
+    renderVehicle({
+      make:  params.get('make')  || 'Toyota',
+      model: params.get('model') || 'RAV4',
+      color: params.get('color') || 'Silver',
+      year:  params.get('year')  || '',
+    });
+    show('home');
     return;
   }
 
