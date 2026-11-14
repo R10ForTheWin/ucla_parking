@@ -469,7 +469,10 @@ _GIST_FILE  = 'push_subs.json'
 _PUSH_STATE_FILE = 'push_state.json'
 
 
-def _gist_read(gist_id, filename, default):
+def _gist_read(gist_id, filename, default, strict=False):
+    """Read a JSON file from a Gist. With strict=True a failed read raises
+    instead of returning `default` — use it before any save, or a GitHub hiccup
+    turns into "file is empty" and the save wipes the stored data."""
     if not gist_id or not _GIST_TOKEN:
         return default
     try:
@@ -483,8 +486,12 @@ def _gist_read(gist_id, filename, default):
         f = data['files'].get(filename)
         if not f:
             return default
+        if f.get('truncated'):
+            raise ValueError(f'{filename} is too large to read in full')
         return _json_mod.loads(f['content'])
     except Exception:
+        if strict:
+            raise
         return default
 
 
@@ -503,16 +510,16 @@ def _gist_write(gist_id, filename, content, indent=None):
         r.read()
 
 
-def _load_subs():
-    return _gist_read(_GIST_ID, _GIST_FILE, [])
+def _load_subs(strict=False):
+    return _gist_read(_GIST_ID, _GIST_FILE, [], strict=strict)
 
 
 def _save_subs(subs):
     _gist_write(_GIST_ID, _GIST_FILE, subs)
 
 
-def _load_push_state():
-    return _gist_read(_GIST_ID, _PUSH_STATE_FILE, {})
+def _load_push_state(strict=False):
+    return _gist_read(_GIST_ID, _PUSH_STATE_FILE, {}, strict=strict)
 
 
 def _save_push_state(state):
@@ -551,7 +558,7 @@ def _send_push(title, body, cohort=None):
                 print(f"[JUSTIN PUSH] send error {_sub_label(sub)}: {type(ex).__name__}: {ex}", flush=True)
         if expired:
             with _push_lock:
-                clean = [s for s in _load_subs() if s.get('endpoint') not in expired]
+                clean = [s for s in _load_subs(strict=True) if s.get('endpoint') not in expired]
                 _save_subs(clean)
             print(f"[JUSTIN PUSH] pruned {len(expired)} expired subscription(s)", flush=True)
         if sent < len(subs):
@@ -604,7 +611,7 @@ def api_subscribe():
         return jsonify({'error': 'Invalid subscription'}), 400
     sub['cohort'] = config.cohort_of(sub.get('cohort'))
     with _push_lock:
-        subs = _load_subs()
+        subs = _load_subs(strict=True)
         is_new = not any(s.get('endpoint') == sub['endpoint'] for s in subs)
         subs = [s for s in subs if s.get('endpoint') != sub['endpoint']]
         subs.append(sub)
@@ -629,7 +636,7 @@ def api_unsubscribe():
     if not endpoint:
         return jsonify({'error': 'endpoint required'}), 400
     with _push_lock:
-        subs = _load_subs()
+        subs = _load_subs(strict=True)
         keep = [s for s in subs if s.get('endpoint') != endpoint]
         if len(keep) != len(subs):
             _save_subs(keep)
@@ -676,7 +683,7 @@ def api_send_push():
 
     if expired:
         with _push_lock:
-            clean = [s for s in _load_subs() if s.get('endpoint') not in expired]
+            clean = [s for s in _load_subs(strict=True) if s.get('endpoint') not in expired]
             _save_subs(clean)
 
     return jsonify({'sent': sent, 'expired_cleaned': len(expired)})
@@ -730,7 +737,7 @@ def api_daily_push():
             return jsonify({'status': 'skipped', 'reason': 'outside 5:55-11:00 AM PT window', 'now': now.strftime('%H:%M'), 'dry_run': dry_run})
 
     with _daily_push_lock:
-        state = _load_push_state()
+        state = _load_push_state(strict=True)
         if not force and state.get('last_daily_push') == today:
             return jsonify({'status': 'already_sent', 'today': today, 'sent_at': state.get('last_daily_push_at'), 'dry_run': dry_run})
         # A newer class with no phones yet isn't a failed send — skip it.
@@ -992,8 +999,22 @@ def _usage_inc(counter, n=1):
         day[counter] = day.get(counter, 0) + n
 
 
+_BOT_UA_WORDS = ('bot', 'uptime', 'monitor', 'pingdom', 'curl', 'wget', 'python', 'go-http',
+                 'httpclient', 'okhttp', 'axios', 'node-fetch', 'headless', 'spider', 'crawl')
+
+
+def _is_bot_request():
+    # Uptime monitors hit / every few minutes (often as HEAD) — don't count them as people.
+    if request.method != 'GET':
+        return True
+    ua = request.headers.get('User-Agent', '').lower()
+    return not ua or any(w in ua for w in _BOT_UA_WORDS)
+
+
 def _usage_visit():
     import hashlib
+    if _is_bot_request():
+        return
     ident = f"{request.headers.get('X-Forwarded-For', request.remote_addr)}|{request.headers.get('User-Agent', '')}"
     h = hashlib.sha256((_usage_salt + ident).encode()).hexdigest()[:16]
     with _usage_lock:
@@ -1018,7 +1039,7 @@ def _usage_flush():
         purchasers = set(_usage_purchasers)
     if not pending and not purchasers and not _routes_quota:
         return
-    usage = _gist_read(_GIST_ID, _USAGE_FILE, {})
+    usage = _gist_read(_GIST_ID, _USAGE_FILE, {}, strict=True)
     days = usage.setdefault('days', {})
     for d, counters in pending.items():
         day = days.setdefault(d, {})
@@ -1083,10 +1104,11 @@ def api_usage():
             totals[k] = totals.get(k, 0) + v
     totals.pop('visitors', None)  # not additive across days
     return jsonify({
+        'tracking_since': min(days) if days else None,
         'unique_purchasers_all_time': len(usage.get('purchasers', [])),
         'push_subscriptions_stored': len(_load_subs()),
         'totals': totals,
-        'days': dict(sorted(days.items(), reverse=True)[:30]),
+        'days': dict(sorted(days.items(), reverse=True)),
     })
 
 
@@ -1096,8 +1118,8 @@ _FEEDBACK_GIST_ID = os.environ.get('FEEDBACK_GIST_ID', '')
 _FEEDBACK_FILE    = 'feedback.json'
 
 
-def _load_feedback():
-    return _gist_read(_FEEDBACK_GIST_ID, _FEEDBACK_FILE, [])
+def _load_feedback(strict=False):
+    return _gist_read(_FEEDBACK_GIST_ID, _FEEDBACK_FILE, [], strict=strict)
 
 
 def _save_feedback(entries):
@@ -1116,7 +1138,7 @@ def submit_feedback():
         'message': message,
     }
     try:
-        entries = _load_feedback()
+        entries = _load_feedback(strict=True)
         entries.append(entry)
         _save_feedback(entries)
     except Exception as e:
