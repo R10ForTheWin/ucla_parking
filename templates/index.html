@@ -2104,6 +2104,12 @@ function _carColor(color) {
   return hit ? hit[1] : '#1f2f57';
 }
 
+// Dark paint gets light windows so the glass still reads (a black car isn't a blob)
+function _isDark(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) < 90;
+}
+
 function carSvg(shape, fill) {
   const body = {
     sedan: 'M4 22V17.5Q4.5 14.2 10 13.6L18 13L24 7.6Q25.8 6 29.5 6H40Q44 6 47 9L51 13L58 14Q61 15 61 18.2V22Z',
@@ -2120,7 +2126,7 @@ function carSvg(shape, fill) {
   return `<svg viewBox="2 2 61 27" width="42" height="19" aria-hidden="true">
     <ellipse cx="32" cy="27.5" rx="28" ry="1.6" fill="rgba(0,0,0,.12)"/>
     <path d="${body}" fill="${fill}" stroke="rgba(0,0,0,.35)" stroke-width=".8" stroke-linejoin="round"/>
-    <path d="${glass}" fill="#2b3a4f" opacity=".82"/>
+    <path d="${glass}" fill="${_isDark(fill) ? '#a9bccf' : '#2b3a4f'}" opacity=".85"/>
     ${wheel(w1)}${wheel(w2)}
   </svg>`;
 }
