@@ -2072,37 +2072,93 @@ function renderGradProgress(today) {
 // ── Vehicle icon (home card) ──────────────────────────────────────────────
 // The server sends make/model/color/year of the car used for a purchase (trial
 // accounts only); it's kept on this phone and drawn as a colored silhouette.
+// Catalog colors. Aliases include the short codes parking systems often use (BLK, WHI…);
+// longer names are listed before shorter ones they contain ("dark blue" before "blue").
 const CAR_COLORS = [
-  ['black', '#1d1f22'], ['white', '#f4f4f2'], ['pearl', '#f1efe8'], ['silver', '#c3c7cc'],
-  ['grey', '#7d838a'], ['gray', '#7d838a'], ['charcoal', '#4a4f55'], ['navy', '#1f2f57'],
-  ['blue', '#2457a6'], ['red', '#c0272d'], ['maroon', '#6e1f2b'], ['burgundy', '#6e1f2b'],
-  ['green', '#2f6b45'], ['yellow', '#e8c547'], ['orange', '#e07a2b'], ['gold', '#c9a24d'],
-  ['beige', '#cdb894'], ['tan', '#cdb894'], ['brown', '#6b4a33'], ['purple', '#5b3b8c'],
+  { name: 'White',      hex: '#f4f4f2', alias: ['white', 'wht', 'whi'] },
+  { name: 'Pearl',      hex: '#ece8dc', alias: ['pearl', 'pea', 'ivory', 'cream'] },
+  { name: 'Silver',     hex: '#c3c7cc', alias: ['silver', 'sil', 'slv'] },
+  { name: 'Charcoal',   hex: '#4a4f55', alias: ['charcoal', 'graphite', 'gunmetal', 'dark gray', 'dark grey', 'dgr'] },
+  { name: 'Gray',       hex: '#80868d', alias: ['gray', 'grey', 'gry', 'gra'] },
+  { name: 'Black',      hex: '#1d1f22', alias: ['black', 'blk', 'bla'] },
+  { name: 'Maroon',     hex: '#6e1f2b', alias: ['maroon', 'mar', 'burgundy', 'bur', 'wine', 'dark red', 'dre'] },
+  { name: 'Red',        hex: '#c0272d', alias: ['red'] },
+  { name: 'Orange',     hex: '#e07a2b', alias: ['orange', 'ong', 'ora'] },
+  { name: 'Yellow',     hex: '#e8c547', alias: ['yellow', 'yel'] },
+  { name: 'Gold',       hex: '#c9a24d', alias: ['gold', 'gld', 'champagne'] },
+  { name: 'Beige',      hex: '#cdb894', alias: ['beige', 'bge', 'tan', 'sand', 'khaki'] },
+  { name: 'Brown',      hex: '#6b4a33', alias: ['brown', 'bro', 'brn', 'bronze', 'copper'] },
+  { name: 'Dark Green', hex: '#1f4a33', alias: ['dark green', 'forest', 'olive'] },
+  { name: 'Green',      hex: '#3a7d50', alias: ['green', 'grn', 'gre'] },
+  { name: 'Dark Blue',  hex: '#1f2f57', alias: ['dark blue', 'dbl', 'navy', 'nav', 'midnight'] },
+  { name: 'Light Blue', hex: '#6c9bd2', alias: ['light blue', 'lbl', 'sky', 'teal', 'turquoise', 'aqua'] },
+  { name: 'Blue',       hex: '#2457a6', alias: ['blue', 'blu'] },
+  { name: 'Purple',     hex: '#5b3b8c', alias: ['purple', 'pur', 'ple', 'violet', 'lavender'] },
 ];
-const TRUCK_MODELS = ['f-150','f150','f-250','silverado','sierra','ram','tacoma','tundra','ranger','colorado',
-  'frontier','titan','gladiator','ridgeline','maverick','r1t','cybertruck','lightning','santa cruz'];
-const SUV_MODELS = ['rav4','rav 4','cr-v','crv','hr-v','highlander','4runner','model y','model x','explorer','escape',
-  'tahoe','suburban','pilot','passport','cx-','rx','nx','gx','lx','x1','x3','x5','x7','q3','q5','q7','q8','glc','gle',
-  'gls','g-class','macan','cayenne','wrangler','cherokee','outback','forester','ascent','crosstrek','tucson','santa fe',
-  'palisade','kona','sorento','telluride','sportage','seltos','ev9','ev6','rogue','pathfinder','murano','armada','durango',
-  'bronco','sequoia','land cruiser','range rover','defender','discovery','xc40','xc60','xc90','ioniq 5','id.4','mach-e',
-  'r1s','equinox','traverse','blazer','trailblazer','edge','expedition','yukon','acadia','escalade','navigator','aviator',
-  'atlas','tiguan','venza','grand highlander','odyssey','sienna','pacifica','carnival','mdx','rdx','qx','xt4','xt5','xt6',
-  'compass','renegade','solterra','bz4x','ariya','leaf','prius'];
+
+// Model keywords → body style, checked in this order (first match wins; anything else is a sedan)
+const CAR_MODEL_SHAPES = [
+  ['truck', ['f-150','f150','f-250','f250','f-350','silverado','sierra','ram 1500','ram 2500','ram','tacoma','tundra',
+    'ranger','colorado','canyon','frontier','titan','gladiator','ridgeline','maverick','r1t','cybertruck','lightning',
+    'santa cruz','pickup']],
+  ['minivan', ['odyssey','sienna','pacifica','carnival','sedona','quest','voyager','grand caravan','caravan','minivan',
+    'transit connect']],
+  ['sports', ['911','cayman','boxster','718','corvette','mustang','camaro','challenger','miata','mx-5','mx5','supra',
+    'gr86','86','brz','370z','400z','z4','r8','huracan','gallardo','ferrari','f-type','amg gt','viper','nsx','gt-r',
+    'gtr','m2','tt','slk','slc','sl','roadster','spyder','spider']],
+  ['coupe', ['coupe','cpe','2dr','2-door','2 door','m4','4 series','428i','430i','440i','rc','q60','c-class coupe',
+    'e-class coupe','accord coupe','civic coupe','genesis coupe','86 coupe']],
+  ['wagon', ['wagon','wgn','sportwagen','alltrack','allroad','v60','v90','e-class wagon','outback','cross country']],
+  ['hatchback', ['hatchback','hatch','hb','golf','gti','e-golf','fit','yaris','mini','cooper','bolt','leaf','prius',
+    'i3','fiesta','veloster','id.3','polo','versa note','sonic','spark','mirage','rio 5','accent hatch','elantra gt',
+    'mazda3 hatchback','civic hatchback','corolla hatchback','impreza 5']],
+  ['crossover', ['bronco sport','grand cherokee l']],
+  ['suv', ['land cruiser','landcruiser','4runner','wrangler','bronco','g-class','g550','g63','g 550','defender',
+    'tahoe','suburban','yukon','escalade','expedition','navigator','sequoia','armada','gx','lx','gx460','lx570',
+    'range rover','discovery','wagoneer','grand wagoneer','hummer','h2','h3','fj cruiser','xterra','qx80','lr4']],
+  ['crossover', ['rav4','rav 4','cr-v','crv','hr-v','hrv','model y','model x','highlander','grand highlander','pilot',
+    'passport','cx-3','cx-30','cx-5','cx-50','cx-9','cx-90','cx5','cx9','rx','nx','ux','rx350','nx300','x1','x2','x3',
+    'x4','x5','x6','x7','ix','q3','q4','q5','q7','q8','e-tron','glc','gle','gls','gla','glb','eqb','eqe suv','macan',
+    'cayenne','forester','ascent','crosstrek','tucson','santa fe','palisade','kona','ioniq 5','sorento','telluride',
+    'sportage','seltos','niro','soul','ev6','ev9','rogue','pathfinder','murano','kicks','ariya','durango','venza',
+    'bz4x','c-hr','chr','corolla cross','equinox','traverse','blazer','trailblazer','trax','edge','explorer','escape',
+    'mach-e','atlas','tiguan','taos','id.4','xc40','xc60','xc90','c40','mdx','rdx','zdx','qx50','qx60','xt4','xt5',
+    'xt6','lyriq','compass','cherokee','grand cherokee','renegade','solterra','r1s','polestar 3','nautilus','aviator',
+    'corsair','acadia','terrain','encore','envision','enclave','outlander','eclipse cross','stelvio','tonale',
+    'levante','urus','bentayga','cullinan','evoque','velar','discovery sport','gv70','gv80','crossover','suv']],
+];
+
+function _matchesWord(text, key) {
+  const esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('(^|[^a-z0-9])' + esc + '($|[^a-z0-9])').test(text);
+}
 
 function _carShape(model) {
-  const m = ' ' + (model || '').toLowerCase() + ' ';
-  const has = list => list.some(k => m.includes(k.length <= 3 ? ' ' + k : k));
-  if (has(TRUCK_MODELS)) return 'truck';
-  if (has(SUV_MODELS)) return 'suv';
+  const m = (model || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  for (const [shape, keys] of CAR_MODEL_SHAPES) {
+    if (keys.some(k => _matchesWord(m, k))) return shape;
+  }
   return 'sedan';
 }
 
 function _carColor(color) {
   const c = (color || '').toLowerCase();
-  const hit = CAR_COLORS.find(([name]) => c.includes(name));
-  return hit ? hit[1] : '#1f2f57';
+  for (const col of CAR_COLORS) {
+    if (col.alias.some(a => _matchesWord(c, a))) return col.hex;
+  }
+  return '#1f2f57';
 }
+
+// Short make codes (as on registrations / parking systems) → names
+const CAR_MAKE_CODES = {
+  TOYT: 'Toyota', TOYO: 'Toyota', HOND: 'Honda', NISS: 'Nissan', CHEV: 'Chevrolet', FORD: 'Ford', DODG: 'Dodge',
+  CHRY: 'Chrysler', JEEP: 'Jeep', SUBA: 'Subaru', MAZD: 'Mazda', MITS: 'Mitsubishi', HYUN: 'Hyundai', KIA: 'Kia',
+  VOLK: 'Volkswagen', VW: 'Volkswagen', MERZ: 'Mercedes-Benz', MERC: 'Mercedes-Benz', BMW: 'BMW', AUDI: 'Audi',
+  LEXS: 'Lexus', LEXU: 'Lexus', ACUR: 'Acura', INFI: 'Infiniti', CADI: 'Cadillac', LINC: 'Lincoln', BUIC: 'Buick',
+  GMC: 'GMC', TESL: 'Tesla', VOLV: 'Volvo', PORS: 'Porsche', LNDR: 'Land Rover', LAND: 'Land Rover', JAGU: 'Jaguar',
+  MINI: 'MINI', FIAT: 'Fiat', ALFA: 'Alfa Romeo', GENS: 'Genesis', RIVN: 'Rivian', RIVI: 'Rivian', POLE: 'Polestar',
+  LUCI: 'Lucid', MASE: 'Maserati', FERR: 'Ferrari', LAMO: 'Lamborghini', BENT: 'Bentley', ROL: 'Rolls-Royce',
+};
 
 // Lighten (amt > 0) or darken (amt < 0) a #rrggbb color
 function _shade(hex, amt) {
@@ -2115,9 +2171,56 @@ function _isDark(hex) {
   return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) < 90;
 }
 
-// Side-view car, front facing right. Wheels sit in arches cut out of the body.
+// Side-view car outlines, front facing right, on a 100×43 canvas. Wheels sit in
+// arches cut out of the body (centers at y=36); each style shares the same drawing code.
 const CAR_SHAPES = {
-  suv: {  // boxy, upright — Land Cruiser / 4Runner / Wrangler territory
+  sedan: {  // 4-door
+    label: 'Sedan',
+    body: 'M5 33V28Q5 25.6 8 25L15.5 23.6Q17 23.3 18.2 22.2L24.6 16.2Q26.8 14 30.5 14H55Q60 14 64.5 18L69.6 22.5Q70.4 23.2 71.5 23.3L90 25Q95 25.6 95 29.5V33Q95 36 92 36H88A9.5 9.5 0 0 0 69 36H31.5A9.5 9.5 0 0 0 12.5 36H8Q5 36 5 33Z',
+    glass: ['M22.6 22.4L27.4 17.6Q28.6 16.3 30.6 16.3H42.5V22.4Z', 'M44.5 16.3H55Q58.6 16.3 61.8 19.1L65.6 22.4H44.5Z'],
+    wheels: [22, 78.5], doors: [43.5, 66], handles: [36, 57], line: 27.5, clad: 32,
+    mirror: 'M64.6 21.2h3.6l.5 2.4h-4Z', head: 'M89.2 25.6L94.6 26.6V28.8L88.8 28.2Z', tail: 'M5 26.2h2.4v4.4H5Z',
+  },
+  coupe: {  // 2-door: one long door, small rear quarter window, sloped roof
+    label: 'Coupe',
+    body: 'M5 33V28.5Q5 26 8 25.4L17 24Q18.5 23.7 19.8 22.6L27 16.6Q29.4 14.6 33 14.6H53Q57.5 14.6 61.5 18L67.6 23Q68.4 23.6 69.5 23.7L90 25.3Q95 25.9 95 29.8V33Q95 36 92 36H88A9.5 9.5 0 0 0 69 36H31.5A9.5 9.5 0 0 0 12.5 36H8Q5 36 5 33Z',
+    glass: ['M25.4 22.8L29.4 18.6Q30.8 17 33 17H38.5L37.2 22.8Z', 'M40.5 17H53Q56.6 17 59.6 19.6L63.6 22.8H39.4Z'],
+    wheels: [22, 78.5], doors: [38.6, 64.5], handles: [55], line: 27.8, clad: 32.2,
+    mirror: 'M62.5 21.4h3.6l.5 2.4h-4Z', head: 'M89.2 25.8L94.6 26.8V29L88.8 28.4Z', tail: 'M5 26.6h2.4v4.2H5Z',
+  },
+  sports: {  // low wedge: long hood, short fastback cabin set back, single side window
+    label: 'Sports Car',
+    body: 'M5 33V30Q5 28 7.4 27.4L13.6 25.8Q15.6 25.3 17.6 24.2L28.6 19.4Q32 18 36 18H49.6Q53.4 18 56.8 19.8L64.6 24.6Q65.6 25.2 67 25.3L91.4 27.2Q95.6 27.7 95.6 31V33Q95.6 36 92.6 36H88A9.5 9.5 0 0 0 69 36H31A9.5 9.5 0 0 0 12 36H8Q5 36 5 33Z',
+    glass: ['M27.6 24.6L33 21.2Q34.8 20.2 37.2 20.2H49.8Q52.8 20.2 55.4 21.8L60.4 24.6Z'],
+    wheels: [21.5, 78.5], doors: [29.5, 62.4], handles: [51], line: 29, clad: 33,
+    spoiler: 'M5.4 25.4h8.6l-.8 1.6H6Z',
+    mirror: 'M59.6 23.2h3.4l.5 2.2h-3.8Z', head: 'M88.6 27.6L95.2 28.6V30.6L88.2 30Z', tail: 'M5 27.8h2.4v3.4H5Z',
+  },
+  hatchback: {  // short; roof runs to a near-vertical tailgate
+    label: 'Hatchback',
+    body: 'M10 33V22Q10 19.6 11.6 18.4L16.2 13.6Q18 12 21 12H52Q56.6 12 60.6 15.6L67 21.6Q67.8 22.3 69 22.4L86 24Q90.5 24.6 90.5 28.6V33Q90.5 36 87.5 36H84A9 9 0 0 0 66 36H34A9 9 0 0 0 16 36H13Q10 36 10 33Z',
+    glass: ['M15.4 20.4L19 15.6Q20.2 14.3 22.4 14.3H33V20.4Z', 'M35 14.3H52Q55.6 14.3 58.6 17L62.8 20.4H35Z'],
+    wheels: [25, 75], doors: [34, 63.5], handles: [28.5, 52], line: 26, clad: 31.5,
+    mirror: 'M61 19.6h3.6l.5 2.4h-4Z', head: 'M84.8 24.8L90.2 25.8V28L84.4 27.4Z', tail: 'M10 21h2.4v6H10Z',
+  },
+  wagon: {  // sedan front, roof carried to the back
+    label: 'Wagon',
+    body: 'M5 33V22.5Q5 20 7.4 19.4L10.6 14.2Q12 12.4 15 12.4H56Q60.6 12.4 64.6 16L69.6 21.6Q70.4 22.4 71.5 22.5L90 24.6Q95 25.2 95 29V33Q95 36 92 36H88A9.5 9.5 0 0 0 69 36H31.5A9.5 9.5 0 0 0 12.5 36H8Q5 36 5 33Z',
+    glass: ['M10.4 20.6L13.2 15.8Q14.2 14.6 16 14.6H26V20.6Z', 'M28 14.6H43V20.6H28Z', 'M45 14.6H55.8Q59.4 14.6 62.4 17.4L65.6 20.6H45Z'],
+    wheels: [22, 78.5], doors: [27, 44, 66], handles: [36, 57], line: 26.5, clad: 31.8,
+    rail: 'M14 11.2H54M17 11.2V12.4M51 11.2V12.4',
+    mirror: 'M64.4 19.6h3.6l.5 2.4h-4Z', head: 'M89.2 25.4L94.6 26.4V28.6L88.8 28Z', tail: 'M5 21h2.4v5.6H5Z',
+  },
+  crossover: {  // rounded SUV — RAV4, CR-V, Model Y
+    label: 'Crossover',
+    body: 'M6 33V23Q6 20.4 8.2 19.6L13 12.4Q15 9.6 18.6 9.4L60 9.2Q64.2 9.2 67.6 12.2L74.4 19Q75.2 19.8 76.4 19.9L90.6 21.4Q95 22 95 26V33Q95 36 92 36H88A9.5 9.5 0 0 0 69 36H33A9.5 9.5 0 0 0 14 36H9Q6 36 6 33Z',
+    glass: ['M12.6 18.6L16 13.4Q17.4 11.6 19.6 11.6H30V18.6Z', 'M32 11.6H48V18.6H32Z', 'M50 11.6H60Q63.4 11.6 66 14L70.4 18.6H50Z'],
+    wheels: [23.5, 78.5], doors: [31, 49, 71], handles: [37, 57], line: 25.5, clad: 31,
+    rail: 'M18 8H58M21 8V9.4M55 8V9.4',
+    mirror: 'M69 17.8h3.8l.6 2.6h-4.2Z', head: 'M89.6 22.4L94.8 23.6V26L89.2 25.4Z', tail: 'M6 21.6h2.4v5H6Z',
+  },
+  suv: {  // boxy, upright — Land Cruiser, 4Runner, Tahoe, Wrangler
+    label: 'Full-Size SUV',
     body: 'M6 33V21.5Q6 19 8.5 18.5L11.5 9.2Q12.3 7 15 7H66Q69 7 70.6 9.2L76.8 18Q77.2 18.6 78 18.7L91 20Q95 20.6 95 24.5V33Q95 36 92 36H88A9.5 9.5 0 0 0 69 36H33A9.5 9.5 0 0 0 14 36H9Q6 36 6 33Z',
     glass: ['M13.2 17.6L15.6 10.7Q16.1 9.5 17.5 9.5H31V17.6Z', 'M33 9.5H50.5V17.6H33Z',
             'M52.5 9.5H66.6Q68.2 9.5 69.2 10.9L74.2 17.6H52.5Z'],
@@ -2125,14 +2228,16 @@ const CAR_SHAPES = {
     rail: 'M15 5.8H65M18 5.8V7M62 5.8V7', mirror: 'M71.5 16.6h3.8l.6 2.6h-4.2Z',
     head: 'M89.5 21.2L94.6 22.4V25.2L89 24.6Z', tail: 'M6 20.5h2.4v5.5H6Z',
   },
-  sedan: {
-    body: 'M5 33V28Q5 25.6 8 25L15.5 23.6Q17 23.3 18.2 22.2L24.6 16.2Q26.8 14 30.5 14H55Q60 14 64.5 18L69.6 22.5Q70.4 23.2 71.5 23.3L90 25Q95 25.6 95 29.5V33Q95 36 92 36H88A9.5 9.5 0 0 0 69 36H31.5A9.5 9.5 0 0 0 12.5 36H8Q5 36 5 33Z',
-    glass: ['M22.6 22.4L27.4 17.6Q28.6 16.3 30.6 16.3H42.5V22.4Z',
-            'M44.5 16.3H55Q58.6 16.3 61.8 19.1L65.6 22.4H44.5Z'],
-    wheels: [22, 78.5], doors: [43.5, 66], handles: [36, 57], line: 27.5, clad: 32,
-    mirror: 'M64.6 21.2h3.6l.5 2.4h-4Z', head: 'M89.2 25.6L94.6 26.6V28.8L88.8 28.2Z', tail: 'M5 26.2h2.4v4.4H5Z',
+  minivan: {  // tall, long roof, short nose
+    label: 'Minivan',
+    body: 'M5 33V20Q5 17.2 7 16.4L9.6 8.8Q10.6 6.4 13.6 6.2L58 5.8Q62 5.8 65 8.4L75.6 18.2Q76.4 18.9 77.6 19L90.6 20.6Q95 21.2 95 25V33Q95 36 92 36H88A9.5 9.5 0 0 0 69 36H31.5A9.5 9.5 0 0 0 12.5 36H8Q5 36 5 33Z',
+    glass: ['M9.4 16.4L11.8 9.6Q12.6 8.2 14.4 8.2H26V16.4Z', 'M28 8.2H48V16.4H28Z', 'M50 8.2H59Q62.4 8.2 64.6 10.4L71 16.4H50Z'],
+    wheels: [22, 78.5], doors: [27, 49, 72], handles: [43, 58], line: 24.5, clad: 31.5,
+    rail: 'M14 4.6H56M17 4.6V6M53 4.6V6',
+    mirror: 'M70.6 16.8h3.8l.6 2.6h-4.2Z', head: 'M89.6 21.8L94.8 23V25.4L89.2 24.8Z', tail: 'M5 18h2.4v6H5Z',
   },
-  truck: {
+  truck: {  // crew-cab pickup with an open bed
+    label: 'Pickup',
     body: 'M4 33V20H44.5L46.6 9.2Q47.1 7 49.6 7H64Q67 7 68.6 9.2L74.8 18Q75.2 18.6 76 18.7L91 20Q95 20.6 95 24.5V33Q95 36 92 36H88A9.5 9.5 0 0 0 69 36H31A9.5 9.5 0 0 0 12 36H7Q4 36 4 33Z',
     glass: ['M48.2 17.6L49.8 10.6Q50.1 9.5 51.4 9.5H58.5V17.6Z', 'M60.5 9.5H64.6Q66.2 9.5 67.2 10.9L72.2 17.6H60.5Z'],
     wheels: [21.5, 78.5], doors: [45.2, 59.5, 72], handles: [63], line: 25, clad: 31.5, bed: 'M4 20H44.5',
@@ -2180,6 +2285,7 @@ function carSvg(shape, fill, size = 44) {
     ${c.glass.map(d => `<path d="${d}" fill="url(#${id}g)"/>`).join('')}
     ${c.handles.map(x => `<rect x="${x}" y="${c.line - 3.1}" width="3.2" height=".9" rx=".45" fill="${dark ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.35)'}"/>`).join('')}
     <path d="${c.mirror}" fill="${_shade(fill, -0.2)}"/>
+    ${c.spoiler ? `<path d="${c.spoiler}" fill="${_shade(fill, -0.3)}"/>` : ''}
     <path d="${c.head}" fill="#f6f2e4" stroke="rgba(0,0,0,.25)" stroke-width=".3"/>
     <path d="${c.tail}" fill="#c4252c"/>
     ${c.wheels.map(wheel).join('')}
@@ -2196,8 +2302,11 @@ function _titleCase(s) {
 }
 
 function _vehicleName(v) {
-  const name = [v.year, _titleCase(v.make), _titleCase(v.model)].filter(Boolean).join(' ');
-  return v.color ? `${name} · ${_titleCase(v.color)}` : name;
+  const make = CAR_MAKE_CODES[(v.make || '').trim().toUpperCase()] || _titleCase(v.make);
+  const name = [v.year, make, _titleCase(v.model)].filter(Boolean).join(' ');
+  const hit = CAR_COLORS.find(col => col.alias.some(a => _matchesWord((v.color || '').toLowerCase(), a)));
+  const color = hit && (v.color || '').length <= 3 ? hit.name : _titleCase(v.color);  // BLK → Black
+  return v.color ? `${name} · ${color}` : name;
 }
 
 function renderVehicle(override) {
@@ -2213,6 +2322,26 @@ function renderVehicle(override) {
   car.innerHTML = carSvg(_carShape(v.model), _carColor(v.color), 42);
   car.style.display = 'flex'; bruin.style.display = 'none';
   sub.textContent = _vehicleName(v);
+}
+
+function showCarCatalog() {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;overflow-y:auto;background:#0b1730;z-index:500;padding:24px 0 40px;' +
+    'font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-overflow-scrolling:touch;';
+  const tile = (shape, col) =>
+    `<div style="flex:0 0 auto;width:132px;background:#fff;border-radius:12px;padding:10px 6px 8px;text-align:center;">
+       ${carSvg(shape, col.hex, 120)}
+       <div style="font-size:11px;font-weight:600;color:#5b6270;margin-top:4px;">${col.name}</div>
+     </div>`;
+  wrap.innerHTML =
+    `<div style="padding:0 16px 8px;color:#e9d9a8;font-family:var(--serif,serif);font-size:26px;">Car Catalog</div>
+     <div style="padding:0 16px 18px;color:#a9b3c6;font-size:13px;">${Object.keys(CAR_SHAPES).length} body styles × ${CAR_COLORS.length} colors · swipe each row</div>` +
+    Object.entries(CAR_SHAPES).map(([shape, def]) =>
+      `<div style="padding:0 16px 6px;color:#fff;font-size:15px;font-weight:700;">${def.label}</div>
+       <div style="display:flex;gap:8px;overflow-x:auto;padding:0 16px 18px;-webkit-overflow-scrolling:touch;">
+         ${CAR_COLORS.map(col => tile(shape, col)).join('')}
+       </div>`).join('');
+  document.body.appendChild(wrap);
 }
 
 function _saveVehicle(vehicle) {
@@ -2495,6 +2624,12 @@ function maybeShowHomescreenPrompt() {
     showGradCountdown();
     show('success');
     history.replaceState(null, '', location.pathname);
+    return;
+  }
+
+  // ?preview=catalog → every body style in every color
+  if (params.get('preview') === 'catalog') {
+    showCarCatalog();
     return;
   }
 
