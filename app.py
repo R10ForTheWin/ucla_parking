@@ -313,6 +313,13 @@ def api_buy():
                 _update(jid, status="running", message="Vehicle selected...")
                 return idx
 
+            # Vehicle icon on the home card — trial on the accounts in VEHICLE_ICON_USERS only
+            vehicle_seen = {}
+            def on_vehicle(info):
+                vehicle_seen.update(info)
+            vehicle_users = {u.strip().lower() for u in os.environ.get('VEHICLE_ICON_USERS', '').split(',') if u.strip()}
+            want_vehicle = username.strip().lower() in vehicle_users
+
             def on_config_drift(name, old_val, new_val):
                 print(f"[JUSTIN CONFIG_DRIFT] {name} ID changed {old_val} → {new_val} — update config.py", flush=True)
 
@@ -347,18 +354,20 @@ def api_buy():
                 vehicle_provider=vehicle_provider,
                 structure_provider=structure_provider,
                 on_config_drift=on_config_drift,
+                on_vehicle=on_vehicle if want_vehicle else None,
             )
+            vehicle = dict(vehicle_seen) or None
 
             if result == "dry_run":
                 _usage_inc('buy_dry_run')
                 _update(jid, status="done",
                         message="Dry run complete — everything worked up to checkout!",
-                        result={"dry_run": True})
+                        result={"dry_run": True, "vehicle": vehicle})
             else:
                 _usage_inc('buy_success')
                 _update(jid, status="done",
                         message="Parking purchased! Check your inbox for a confirmation email.",
-                        result={"dry_run": False, "detail": result})
+                        result={"dry_run": False, "detail": result, "vehicle": vehicle})
 
         except AlreadyHasActivePermit as e:
             permit_info = str(e)

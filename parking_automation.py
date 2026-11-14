@@ -781,7 +781,34 @@ def _enter_permit_flow(page, cb):
     return None
 
 
-def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehicle_provider=None, structure_provider=None, on_config_drift=None):
+_VEHICLE_FIELDS = ('make', 'model', 'color', 'year')
+
+
+def _read_vehicle_rows(page, checkboxes):
+    """Make/model/color/year for each vehicle checkbox, keyed off the table's
+    column headers. The plate and anything else are dropped."""
+    out = []
+    for el in checkboxes:
+        cells = el.evaluate("""el => {
+            const row = el.closest('tr'); if (!row) return null;
+            const table = row.closest('table');
+            const head = table && (table.querySelector('thead tr') || table.querySelector('tr'));
+            const names = head && head !== row ? [...head.children].map(c => c.innerText.trim()) : [];
+            return [...row.children].map((c, i) => [names[i] || '', c.innerText.trim()]);
+        }""") or []
+        info = {}
+        for name, value in cells:
+            key = name.strip().lower()
+            for f in _VEHICLE_FIELDS:
+                if f in key and value and f not in info:
+                    info[f] = ' '.join(value.split())[:40]
+        out.append(info)
+    print(f"[JUSTIN VEHICLE] read {len(out)} vehicle(s); fields found: "
+          f"{sorted(set(k for v in out for k in v))}", flush=True)
+    return out
+
+
+def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehicle_provider=None, structure_provider=None, on_config_drift=None, on_vehicle=None):
     """Steps 6–9: permit → vehicle → structure → checkout.
     Called from both the full flow and the cached-session fast path.
 
@@ -890,6 +917,8 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
     if len(checkboxes) == 0:
         raise Exception("No vehicle is linked to your UCLA parking account. Please add one at bruinepermit.t2hosted.com first.")
 
+    chosen = 0
+
     if len(checkboxes) >= 2 and vehicle_provider is not None:
         labels = []
         for i, cb_el in enumerate(checkboxes):
@@ -912,6 +941,14 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
             checkboxes[0].check()
         except Exception:
             raise Exception("Couldn't select your vehicle. Please check your UCLA parking account at bruinepermit.t2hosted.com.")
+
+    if on_vehicle is not None:
+        try:
+            vehicles = _read_vehicle_rows(page, checkboxes)
+            if 0 <= chosen < len(vehicles) and vehicles[chosen]:
+                on_vehicle(vehicles[chosen])
+        except Exception as e:
+            print(f"[JUSTIN VEHICLE] couldn't read vehicle details: {e}", flush=True)
 
     page.get_by_role("button", name="Next >>").click()
 
@@ -1061,7 +1098,7 @@ def _run_permit_steps(page, structure, cb, dry_run=False, cart_ready=False, vehi
 
 def _do_purchase_full(page, context, username, password, structure, cb, duo_provider,
                       duo_method="push", dry_run=False, save_session_for=None,
-                      check_passcode_switch=None, vehicle_provider=None, structure_provider=None, on_config_drift=None):
+                      check_passcode_switch=None, vehicle_provider=None, structure_provider=None, on_config_drift=None, on_vehicle=None):
     """Full flow: navigate → UCLA login → Duo → permit steps.
 
     save_session_for: if set (username string), saves browser session after
@@ -1069,7 +1106,7 @@ def _do_purchase_full(page, context, username, password, structure, cb, duo_prov
     """
     cart_ready_status = _enter_permit_flow(page, cb)
     if cart_ready_status == "cart_ready":
-        return _run_permit_steps(page, structure, cb, dry_run, cart_ready=True, vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift)
+        return _run_permit_steps(page, structure, cb, dry_run, cart_ready=True, vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift, on_vehicle=on_vehicle)
 
     # Step 3: UCLA SSO login
     cb("Logging in with your UCLA credentials...")
@@ -1142,10 +1179,10 @@ def _do_purchase_full(page, context, username, password, structure, cb, duo_prov
         page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
         print(f"[JUSTIN REENTER] URL: {page.url}", flush=True)
 
-    return _run_permit_steps(page, structure, cb, dry_run, vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift)
+    return _run_permit_steps(page, structure, cb, dry_run, vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift, on_vehicle=on_vehicle)
 
 
-def _do_purchase_cached(page, structure, cb, dry_run=False, vehicle_provider=None, structure_provider=None, on_config_drift=None):
+def _do_purchase_cached(page, structure, cb, dry_run=False, vehicle_provider=None, structure_provider=None, on_config_drift=None, on_vehicle=None):
     """Fast path: restored session, skip UCLA login + Duo entirely.
 
     Raises if the session turned out to be expired (caller falls back to full flow).
@@ -1164,7 +1201,7 @@ def _do_purchase_cached(page, structure, cb, dry_run=False, vehicle_provider=Non
 
     # If orphaned cart handling landed us at the cart, go straight to checkout
     if cart_ready_status == "cart_ready":
-        return _run_permit_steps(page, structure, cb, dry_run, cart_ready=True, vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift)
+        return _run_permit_steps(page, structure, cb, dry_run, cart_ready=True, vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift, on_vehicle=on_vehicle)
 
     # May have landed off the permit path (e.g. Account/Portal dashboard)
     # Skip this navigation if already on a cart page
@@ -1188,7 +1225,7 @@ def _do_purchase_cached(page, structure, cb, dry_run=False, vehicle_provider=Non
             pass
         page.wait_for_load_state("domcontentloaded", timeout=config.PAGE_LOAD_TIMEOUT)
 
-    return _run_permit_steps(page, structure, cb, dry_run, vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift)
+    return _run_permit_steps(page, structure, cb, dry_run, vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift, on_vehicle=on_vehicle)
 
 
 # ── Network capture (API discovery) ──────────────────────────────────────────
@@ -1330,7 +1367,7 @@ def _setup_page(context):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def run_purchase(username, password, structure, callback, duo_provider, duo_method="push",
-                 dry_run=False, real_dry_run=False, check_passcode_switch=None, vehicle_provider=None, structure_provider=None, on_config_drift=None):
+                 dry_run=False, real_dry_run=False, check_passcode_switch=None, vehicle_provider=None, structure_provider=None, on_config_drift=None, on_vehicle=None):
     """Run the full purchase flow for one user.
 
     dry_run=True      — mock flow (no browser), tests the web UI state machine.
@@ -1372,7 +1409,7 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
             context = _make_context(browser, storage_state=cached_session)
             page = _setup_page(context)
             try:
-                result = _do_purchase_cached(page, structure, cb, dry_run=actual_dry_run, vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift)
+                result = _do_purchase_cached(page, structure, cb, dry_run=actual_dry_run, vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift, on_vehicle=on_vehicle)
                 _screenshot(page, "success")
                 print(f"[JUSTIN CACHE] Fast path succeeded!", flush=True)
                 return result
@@ -1403,7 +1440,7 @@ def run_purchase(username, password, structure, callback, duo_provider, duo_meth
                     page, context, username, password, structure,
                     cb, duo_provider, duo_method=duo_method, dry_run=actual_dry_run,
                     save_session_for=username, check_passcode_switch=check_passcode_switch,
-                    vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift,
+                    vehicle_provider=vehicle_provider, structure_provider=structure_provider, on_config_drift=on_config_drift, on_vehicle=on_vehicle,
                 )
                 _screenshot(page, "success")
                 return result

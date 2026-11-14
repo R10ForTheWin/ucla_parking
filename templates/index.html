@@ -880,10 +880,11 @@
   </div>
   <div class="content">
     <div class="profile-badge">
-      <img src="/static/bruin.png" alt="Bruin" class="avatar" style="object-fit:cover;padding:2px;background:#fff;">
+      <img src="/static/bruin.png" alt="Bruin" class="avatar" id="home-bruin" style="object-fit:cover;padding:2px;background:#fff;">
+      <div class="avatar" id="home-car" style="display:none;background:#fff;"></div>
       <div class="profile-info">
         <div class="profile-name" id="home-username">—</div>
-        <div class="profile-sub">Vehicle on file at UCLA</div>
+        <div class="profile-sub" id="home-vehicle-sub">Vehicle on file at UCLA</div>
       </div>
       <button class="edit-link" onclick="openSetup()">Edit</button>
     </div>
@@ -1394,6 +1395,7 @@ function loadHome() {
   const p = getProfile();
   // avatar is now a static bruin image — no dynamic text needed
   document.getElementById('home-username').textContent = p.username || 'Alerts Only';
+  renderVehicle();
 
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
 
@@ -2067,9 +2069,101 @@ function renderGradProgress(today) {
   });
 }
 
+// ── Vehicle icon (home card) ──────────────────────────────────────────────
+// The server sends make/model/color/year of the car used for a purchase (trial
+// accounts only); it's kept on this phone and drawn as a colored silhouette.
+const CAR_COLORS = [
+  ['black', '#1d1f22'], ['white', '#f4f4f2'], ['pearl', '#f1efe8'], ['silver', '#c3c7cc'],
+  ['grey', '#7d838a'], ['gray', '#7d838a'], ['charcoal', '#4a4f55'], ['navy', '#1f2f57'],
+  ['blue', '#2457a6'], ['red', '#c0272d'], ['maroon', '#6e1f2b'], ['burgundy', '#6e1f2b'],
+  ['green', '#2f6b45'], ['yellow', '#e8c547'], ['orange', '#e07a2b'], ['gold', '#c9a24d'],
+  ['beige', '#cdb894'], ['tan', '#cdb894'], ['brown', '#6b4a33'], ['purple', '#5b3b8c'],
+];
+const TRUCK_MODELS = ['f-150','f150','f-250','silverado','sierra','ram','tacoma','tundra','ranger','colorado',
+  'frontier','titan','gladiator','ridgeline','maverick','r1t','cybertruck','lightning','santa cruz'];
+const SUV_MODELS = ['rav4','rav 4','cr-v','crv','hr-v','highlander','4runner','model y','model x','explorer','escape',
+  'tahoe','suburban','pilot','passport','cx-','rx','nx','gx','lx','x1','x3','x5','x7','q3','q5','q7','q8','glc','gle',
+  'gls','g-class','macan','cayenne','wrangler','cherokee','outback','forester','ascent','crosstrek','tucson','santa fe',
+  'palisade','kona','sorento','telluride','sportage','seltos','ev9','ev6','rogue','pathfinder','murano','armada','durango',
+  'bronco','sequoia','land cruiser','range rover','defender','discovery','xc40','xc60','xc90','ioniq 5','id.4','mach-e',
+  'r1s','equinox','traverse','blazer','trailblazer','edge','expedition','yukon','acadia','escalade','navigator','aviator',
+  'atlas','tiguan','venza','grand highlander','odyssey','sienna','pacifica','carnival','mdx','rdx','qx','xt4','xt5','xt6',
+  'compass','renegade','solterra','bz4x','ariya','leaf','prius'];
+
+function _carShape(model) {
+  const m = ' ' + (model || '').toLowerCase() + ' ';
+  const has = list => list.some(k => m.includes(k.length <= 3 ? ' ' + k : k));
+  if (has(TRUCK_MODELS)) return 'truck';
+  if (has(SUV_MODELS)) return 'suv';
+  return 'sedan';
+}
+
+function _carColor(color) {
+  const c = (color || '').toLowerCase();
+  const hit = CAR_COLORS.find(([name]) => c.includes(name));
+  return hit ? hit[1] : '#1f2f57';
+}
+
+function carSvg(shape, fill) {
+  const body = {
+    sedan: 'M4 22V17.5Q4.5 14.2 10 13.6L18 13L24 7.6Q25.8 6 29.5 6H40Q44 6 47 9L51 13L58 14Q61 15 61 18.2V22Z',
+    suv:   'M4 22V15.2Q4 12.6 8 12.1L14 11.5L18.8 5Q19.8 4 23 4H50Q53 4 54.5 6L58 11.6Q61 12.6 61 15.4V22Z',
+    truck: 'M3 22V13H30L33 5Q33.8 4 37 4H46Q48 4 49.5 6L53 12L59 13Q61 13.6 61 16.4V22Z',
+  }[shape];
+  const glass = {
+    sedan: 'M25.6 8.4L21 13H33V8H29.4Q26.7 8 25.6 8.4ZM35 8V13H48L45.2 9.6Q43.6 8 41 8Z',
+    suv:   'M21 6L16.8 11.6H32V6ZM34 6V11.6H56L53.2 6.6Q52.7 6 51 6Z',
+    truck: 'M35 6L32.6 12H50.2L47.6 6.6Q47.1 6 45.6 6Z',
+  }[shape];
+  const [w1, w2] = shape === 'truck' ? [14, 50] : [16, 49];
+  const wheel = x => `<circle cx="${x}" cy="22" r="5.2" fill="#1f2328"/><circle cx="${x}" cy="22" r="2.2" fill="#c9ccd1"/>`;
+  return `<svg viewBox="2 2 61 27" width="42" height="19" aria-hidden="true">
+    <ellipse cx="32" cy="27.5" rx="28" ry="1.6" fill="rgba(0,0,0,.12)"/>
+    <path d="${body}" fill="${fill}" stroke="rgba(0,0,0,.35)" stroke-width=".8" stroke-linejoin="round"/>
+    <path d="${glass}" fill="#2b3a4f" opacity=".82"/>
+    ${wheel(w1)}${wheel(w2)}
+  </svg>`;
+}
+
+const _KEEP_CAPS = ['BMW', 'GMC', 'VW', 'MINI', 'RAM'];
+// "TOYOTA RAV4" → "Toyota RAV4": words with digits (RAV4, CX-5, F-150) and known acronyms stay as-is
+function _titleCase(s) {
+  return (s || '').split(/\s+/).filter(Boolean).map(w =>
+    /\d/.test(w) || _KEEP_CAPS.includes(w.toUpperCase()) ? w.toUpperCase()
+      : w.toLowerCase().replace(/(^|[-'])[a-z]/g, ch => ch.toUpperCase())
+  ).join(' ');
+}
+
+function _vehicleName(v) {
+  const name = [v.year, _titleCase(v.make), _titleCase(v.model)].filter(Boolean).join(' ');
+  return v.color ? `${name} · ${_titleCase(v.color)}` : name;
+}
+
+function renderVehicle() {
+  let v = null;
+  try { v = JSON.parse(localStorage.getItem('justin_vehicle') || 'null'); } catch (e) {}
+  const car = document.getElementById('home-car');
+  const bruin = document.getElementById('home-bruin');
+  const sub = document.getElementById('home-vehicle-sub');
+  if (!v || !(v.make || v.model)) {
+    car.style.display = 'none'; bruin.style.display = ''; sub.textContent = 'Vehicle on file at UCLA';
+    return;
+  }
+  car.innerHTML = carSvg(_carShape(v.model), _carColor(v.color));
+  car.style.display = 'flex'; bruin.style.display = 'none';
+  sub.textContent = _vehicleName(v);
+}
+
+function _saveVehicle(vehicle) {
+  if (!vehicle || !(vehicle.make || vehicle.model)) return;
+  try { localStorage.setItem('justin_vehicle', JSON.stringify(vehicle)); } catch (e) {}
+  renderVehicle();
+}
+
 // ── Success handler ────────────────────────────────────────────────────────
 function handleSuccess(result) {
   document.getElementById('grad-countdown').style.display = 'none';
+  if (result && result.vehicle) _saveVehicle(result.vehicle);
   if (result && result.dry_run) {
     document.getElementById('success-title').textContent = 'Dry Run Complete!';
     document.getElementById('success-msg').textContent =
