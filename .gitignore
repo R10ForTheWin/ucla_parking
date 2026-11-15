@@ -6,3 +6,6 @@ prompt_result.json
 .DS_Store
 .claude/
 recorded_flow.py
+
+# Source art and reference docs (files already tracked here stay tracked)
+assets/
